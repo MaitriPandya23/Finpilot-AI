@@ -9,6 +9,7 @@ from sqlalchemy import text
 from typing import Optional
 from datetime import datetime, timedelta
 import numpy as np
+
 from ..database import get_db
 from ..schemas import TrendsResponse, TrendPoint
 
