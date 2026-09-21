@@ -6,12 +6,14 @@ import { ForecastData } from "../lib/api";
 
 interface ForecastChartProps {
   forecast: ForecastData | null;
+  isLoading?: boolean;
 }
 
-export const ForecastChart: React.FC<ForecastChartProps> = ({ forecast }) => {
+export const ForecastChart: React.FC<ForecastChartProps> = ({ forecast, isLoading = false }) => {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   const points = forecast?.forecast_data || [];
+  const isDemo = Boolean(forecast?.is_demo);
   const minVal = Math.min(...points.map((p) => p.yhat_lower), 20000);
   const maxVal = Math.max(...points.map((p) => p.yhat_upper), 80000);
   const range = maxVal - minVal || 1;
@@ -50,6 +52,11 @@ export const ForecastChart: React.FC<ForecastChartProps> = ({ forecast }) => {
             <span className="badge badge-moderate" style={{ fontSize: "0.68rem" }}>
               {forecast?.model_version || "Prophet v1.4"}
             </span>
+            {isDemo && (
+              <span className="badge badge-warning" style={{ fontSize: "0.65rem", padding: "1px 6px" }}>
+                Demo Simulation
+              </span>
+            )}
           </div>
           <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
             Next 30-day projection with 95% Bayesian uncertainty corridor
@@ -59,16 +66,45 @@ export const ForecastChart: React.FC<ForecastChartProps> = ({ forecast }) => {
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>30-Day Projected Total</div>
           <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "var(--accent-cyan)" }}>
-            ${(totalProjected / 1_000_000).toFixed(2)}M
+            {isLoading
+              ? "..."
+              : totalProjected > 0
+              ? `$${(totalProjected / 1_000_000).toFixed(2)}M`
+              : "$0.00"}
           </div>
         </div>
       </div>
 
       {/* SVG Canvas */}
       <div style={{ position: "relative", width: "100%", overflow: "hidden" }}>
-        {coords.length === 0 ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: `${svgHeight}px`, color: "var(--text-muted)" }}>
-            Computing Prophet projections...
+        {isLoading ? (
+          <div style={{
+            height: `${svgHeight}px`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(6, 182, 212, 0.05)",
+            borderRadius: "8px",
+            animation: "pulse 1.5s infinite",
+          }}>
+            <span style={{ fontSize: "0.8rem", color: "var(--accent-cyan)" }}>Computing Prophet projections...</span>
+          </div>
+        ) : coords.length === 0 ? (
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            height: `${svgHeight}px`,
+            gap: "8px",
+            color: "var(--text-muted)",
+            fontSize: "0.85rem",
+          }}>
+            <Sparkles size={26} color="rgba(255,255,255,0.2)" />
+            <span>No ML forecast records yet in warehouse</span>
+            <span style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.3)" }}>
+              Run `python ml/run_pipeline.py` to train Prophet time-series model
+            </span>
           </div>
         ) : (
           <svg

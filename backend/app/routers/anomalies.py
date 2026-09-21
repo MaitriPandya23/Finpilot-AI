@@ -15,7 +15,7 @@ router = APIRouter(prefix="", tags=["Anomalies"])
 
 @router.get("/anomalies", response_model=AnomaliesResponse)
 def get_anomalies(
-    severity: Optional[str] = Query(None, regex="^(Critical|Warning|Moderate)$"),
+    severity: Optional[str] = Query(None, pattern="^(Critical|Warning|Moderate)$"),
     limit: int = Query(50, ge=5, le=500),
     db: Session = Depends(get_db),
 ):
@@ -65,6 +65,7 @@ def get_anomalies(
                 critical_count=crit,
                 warning_count=warn,
                 items=items,
+                is_demo=False,
             )
 
         # Baseline sample anomalies for initial walkthrough
@@ -126,8 +127,9 @@ def get_anomalies(
             critical_count=2,
             warning_count=2,
             items=sample_items,
+            is_demo=True,
         )
 
     except Exception as e:
         print(f"Error reading anomalies: {e}")
-        return AnomaliesResponse(total_anomalies=0, critical_count=0, warning_count=0, items=[])
+        return AnomaliesResponse(total_anomalies=0, critical_count=0, warning_count=0, items=[], is_demo=True)

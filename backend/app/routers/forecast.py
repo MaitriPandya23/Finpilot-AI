@@ -36,8 +36,19 @@ def get_revenue_forecast(
             LIMIT :limit;
         """
         rows = db.execute(text(sql), {"limit": horizon_days}).fetchall()
+        if not rows:
+            # Check if any forecasts exist even if generated for earlier test dates
+            fallback_sql = """
+                SELECT ds::text, yhat, yhat_lower, yhat_upper, model_version, generated_at::text
+                FROM ml_forecasts
+                ORDER BY ds DESC
+                LIMIT :limit;
+            """
+            recent_rows = db.execute(text(fallback_sql), {"limit": horizon_days}).fetchall()
+            if recent_rows:
+                rows = sorted(recent_rows, key=lambda x: x[0])
 
-        if rows and len(rows) >= 7:
+        if rows and len(rows) > 0:
             points = [
                 ForecastPoint(
                     date=r[0],
@@ -52,6 +63,7 @@ def get_revenue_forecast(
                 forecast_horizon_days=len(points),
                 generated_at=rows[0][5] or datetime.utcnow().isoformat(),
                 forecast_data=points,
+                is_demo=False,
             )
 
         # Baseline generation for cold-start demo preview
@@ -83,6 +95,7 @@ def get_revenue_forecast(
             forecast_horizon_days=horizon_days,
             generated_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
             forecast_data=points,
+            is_demo=True,
         )
 
     except Exception as e:
@@ -92,4 +105,5 @@ def get_revenue_forecast(
             forecast_horizon_days=0,
             generated_at=datetime.utcnow().isoformat(),
             forecast_data=[],
+            is_demo=True,
         )
