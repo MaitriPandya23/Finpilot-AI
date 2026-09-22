@@ -47,12 +47,53 @@ def init_spark_session(app_name: str = "Finpilot-Medallion-ETL", local_mode: boo
             .config("spark.hadoop.fs.s3a.path.style.access", "true")
             .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
             .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+            .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
+            .config("spark.hadoop.fs.s3a.fast.upload", "true")
         )
 
+        jar_candidates = [
+            "/opt/spark/jars/hadoop-aws-3.3.4.jar",
+            "/opt/spark/jars/aws-java-sdk-bundle-1.12.262.jar",
+        ]
+        found_jars = [j for j in jar_candidates if os.path.exists(j)]
+        if found_jars:
+            builder = (
+                builder
+                .config("spark.jars", ",".join(found_jars))
+                .config("spark.driver.extraClassPath", ":".join(found_jars))
+                .config("spark.executor.extraClassPath", ":".join(found_jars))
+            )
+        else:
+            builder = builder.config("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262")
+
     spark = builder.getOrCreate()
+    if not local_mode:
+        sanitize_hadoop_conf(spark)
     spark.sparkContext.setLogLevel("WARN")
     print(f"Initialized SparkSession: Version {spark.version}")
     return spark
+
+
+def sanitize_hadoop_conf(spark: SparkSession):
+    """Sanitizes Hadoop configuration duration strings into numeric values for S3A compatibility."""
+    import re
+    hconf = spark._jsc.hadoopConfiguration()
+    unit_pattern = re.compile(r"^(\d+)(ms|s|m|h|d)$")
+    it = hconf.iterator()
+    updates = {}
+    while it.hasNext():
+        e = it.next()
+        k, v = e.getKey(), e.getValue().strip()
+        m = unit_pattern.match(v)
+        if m:
+            num, u = int(m.group(1)), m.group(2)
+            mult = {"ms": 1, "s": 1000, "m": 60000, "h": 3600000, "d": 86400000}[u]
+            if "keepalivetime" in k or "purge.age" in k:
+                updates[k] = str(num if u == "s" else num * (mult // 1000))
+            else:
+                updates[k] = str(num if u == "ms" else num * mult)
+    for k, v in updates.items():
+        hconf.set(k, v)
 
 
 def get_raw_schema() -> StructType:
@@ -95,6 +136,20 @@ def bronze_to_silver(spark: SparkSession, bronze_path: str, silver_path: str):
 
     raw_count = df_bronze.count()
     print(f"Ingested {raw_count:,} raw records from Bronze.")
+
+    # Data Quality Checks
+    null_txn_count = df_bronze.filter(F.col("transaction_id").isNull()).count()
+    print(f"[DQ Check 1] Missing transaction IDs: {null_txn_count:,}")
+
+    # Check rows failing total == quantity * unit_price check
+    failing_math_df = df_bronze.filter(
+        (F.col("quantity").isNotNull()) &
+        (F.col("unit_price").isNotNull()) &
+        (F.col("total").isNotNull()) &
+        (F.abs(F.round(F.col("quantity").cast(DoubleType()) * F.col("unit_price").cast(DoubleType()), 2) - F.round(F.col("total").cast(DoubleType()), 2)) >= 0.05)
+    )
+    failing_math_count = failing_math_df.count()
+    print(f"[DQ Check 2] Rows failing (quantity * unit_price == total) variance check: {failing_math_count:,}")
 
     # Data Cleansing & Deduplication
     df_cleaned = (
@@ -142,7 +197,7 @@ def bronze_to_silver(spark: SparkSession, bronze_path: str, silver_path: str):
         .partitionBy("year", "month")
         .parquet(silver_path)
     )
-    print(f"Successfully written Silver Parquet to: {silver_path}")
+    print(f"Successfully written Silver Parquet ({clean_count:,} rows) to: {silver_path}")
     return df_cleaned
 
 
@@ -158,6 +213,8 @@ def silver_to_gold(spark: SparkSession, silver_path: str, gold_base_path: str):
     print(f"============================================================")
 
     df_silver = spark.read.parquet(silver_path)
+    silver_count = df_silver.count()
+    print(f"Read {silver_count:,} records from Silver.")
 
     # 1. Gold Fact Sales
     gold_fact_path = f"{gold_base_path}/fact_sales"
@@ -183,7 +240,7 @@ def silver_to_gold(spark: SparkSession, silver_path: str, gold_base_path: str):
         .partitionBy("year", "month")
         .parquet(gold_fact_path)
     )
-    print(f"Saved Gold Fact Sales -> {gold_fact_path}")
+    print(f"Saved Gold Fact Sales ({silver_count:,} rows) -> {gold_fact_path}")
 
     # 2. Gold Daily Shop Metrics (BI Aggregation)
     gold_shop_path = f"{gold_base_path}/daily_shop_metrics"
@@ -199,7 +256,8 @@ def silver_to_gold(spark: SparkSession, silver_path: str, gold_base_path: str):
         .orderBy(F.col("date_only").desc(), F.col("total_revenue").desc())
     )
     df_daily_shop.write.mode("overwrite").parquet(gold_shop_path)
-    print(f"Saved Gold Daily Shop Metrics -> {gold_shop_path}")
+    daily_shop_count = df_daily_shop.count()
+    print(f"Saved Gold Daily Shop Metrics ({daily_shop_count:,} rows) -> {gold_shop_path}")
 
     # 3. Gold Category & Product Analytics
     gold_product_path = f"{gold_base_path}/product_category_metrics"
@@ -214,7 +272,8 @@ def silver_to_gold(spark: SparkSession, silver_path: str, gold_base_path: str):
         .orderBy(F.col("total_revenue").desc())
     )
     df_cat_metrics.write.mode("overwrite").parquet(gold_product_path)
-    print(f"Saved Gold Product Category Metrics -> {gold_product_path}")
+    cat_metrics_count = df_cat_metrics.count()
+    print(f"Saved Gold Product Category Metrics ({cat_metrics_count:,} rows) -> {gold_product_path}")
 
     # 4. Gold Customer Analytics (Loyalty & RFM proxy)
     gold_cust_path = f"{gold_base_path}/customer_summary"
@@ -230,9 +289,15 @@ def silver_to_gold(spark: SparkSession, silver_path: str, gold_base_path: str):
         .orderBy(F.col("lifetime_spend").desc())
     )
     df_cust_summary.write.mode("overwrite").parquet(gold_cust_path)
-    print(f"Saved Gold Customer Analytics -> {gold_cust_path}")
+    cust_summary_count = df_cust_summary.count()
+    print(f"Saved Gold Customer Analytics ({cust_summary_count:,} rows) -> {gold_cust_path}")
 
     print("\nGold Layer successfully compiled!")
+    print(f"Summary of Gold Tables:")
+    print(f"  - fact_sales: {silver_count:,} rows")
+    print(f"  - daily_shop_metrics: {daily_shop_count:,} rows")
+    print(f"  - product_category_metrics: {cat_metrics_count:,} rows")
+    print(f"  - customer_summary: {cust_summary_count:,} rows")
 
 
 def main():

@@ -62,6 +62,21 @@ def populate_dim_date(engine, start_date: str = "2024-01-01", end_date: str = "2
             print(f"dim_date already populated with {existing:,} dates.")
 
 
+def psql_insert_copy(table, conn, keys, data_iter):
+    """Fast bulk insert using PostgreSQL COPY via StringIO."""
+    import io, csv
+    dbapi_conn = conn.connection
+    with dbapi_conn.cursor() as cur:
+        s_buf = io.StringIO()
+        writer = csv.writer(s_buf)
+        writer.writerows(data_iter)
+        s_buf.seek(0)
+        columns = ', '.join(f'"{k}"' for k in keys)
+        table_name = f'"{table.schema}"."{table.name}"' if table.schema else f'"{table.name}"'
+        sql = f'COPY {table_name} ({columns}) FROM STDIN WITH CSV'
+        cur.copy_expert(sql=sql, file=s_buf)
+
+
 def load_dataset_to_warehouse(engine, source_path: str, chunk_size: int = 50_000, max_rows: int = None):
     """
     Ingests Gold Parquet (or CSV fallback), resolves surrogate keys,
@@ -143,7 +158,11 @@ def load_dataset_to_warehouse(engine, source_path: str, chunk_size: int = 50_000
 
     # 4. Transform Fact Records
     print("Mapping fact records to dimensional keys...")
-    df_source["timestamp"] = pd.to_datetime(df_source["date"])
+    if "date" in df_source.columns and "timestamp" not in df_source.columns:
+        df_source["timestamp"] = pd.to_datetime(df_source["date"])
+    else:
+        df_source["timestamp"] = pd.to_datetime(df_source["timestamp"])
+
     df_source["date_key"] = df_source["timestamp"].dt.strftime("%Y%m%d").astype(int)
     df_source["shop_key"] = df_source["shop_id"].map(shop_map)
     df_source["prod_lookup"] = df_source["product"] + "|||" + df_source["category"]
@@ -166,16 +185,33 @@ def load_dataset_to_warehouse(engine, source_path: str, chunk_size: int = 50_000
         "payment_mode": valid_facts["payment_mode"],
     })
 
-    # 5. Chunked Insertion into fact_sales
+    # 5. Fast Bulk Insertion into fact_sales
     print(f"Loading {len(fact_records):,} fact records into fact_sales (chunk size: {chunk_size:,})...")
     with engine.begin() as conn:
         for idx in range(0, len(fact_records), chunk_size):
             chunk = fact_records.iloc[idx : idx + chunk_size]
-            chunk.to_sql("fact_sales", con=conn, if_exists="append", index=False, method="multi")
+            chunk.to_sql("fact_sales", con=conn, if_exists="append", index=False, method=psql_insert_copy)
             print(f"Inserted chunk {idx // chunk_size + 1}: rows {idx:,} to {idx + len(chunk):,}")
 
     elapsed = time.time() - t0
     print(f"\nWarehouse load completed in {elapsed:.2f}s ({len(fact_records) / max(elapsed, 0.001):,.0f} rows/s)!")
+
+    # 6. Verify and report row counts in each table
+    with engine.connect() as conn:
+        dim_date_count = conn.execute(text("SELECT COUNT(*) FROM dim_date")).scalar()
+        dim_shop_count = conn.execute(text("SELECT COUNT(*) FROM dim_shop")).scalar()
+        dim_product_count = conn.execute(text("SELECT COUNT(*) FROM dim_product")).scalar()
+        dim_customer_count = conn.execute(text("SELECT COUNT(*) FROM dim_customer")).scalar()
+        fact_sales_count = conn.execute(text("SELECT COUNT(*) FROM fact_sales")).scalar()
+
+    print("\n============================================================")
+    print(" PostgreSQL Star Schema Table Row Counts:")
+    print(f"  - dim_date     : {dim_date_count:,} rows")
+    print(f"  - dim_shop     : {dim_shop_count:,} rows")
+    print(f"  - dim_product  : {dim_product_count:,} rows")
+    print(f"  - dim_customer : {dim_customer_count:,} rows")
+    print(f"  - fact_sales   : {fact_sales_count:,} rows")
+    print("============================================================\n")
 
 
 def main():
