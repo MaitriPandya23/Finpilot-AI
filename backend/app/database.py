@@ -8,8 +8,16 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://finpilot_user:finpilot_pass@localhost:5432/finpilot"
+    "postgresql+psycopg2://finpilot_user:finpilot_pass@localhost:5432/finpilot"
 )
+
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace(
+        "postgresql://",
+        "postgresql+psycopg2://",
+        1,
+    )
+    
 
 # Robust fallback to SQLite in memory if local postgres isn't running
 try:

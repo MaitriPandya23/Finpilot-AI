@@ -9,6 +9,12 @@ import os
 import sys
 import time
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
 
     from sqlalchemy import create_engine
     SQLALCHEMY_AVAILABLE = True

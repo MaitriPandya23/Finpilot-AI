@@ -13,6 +13,12 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
 
     from sqlalchemy import create_engine, text
     SQLALCHEMY_AVAILABLE = True
@@ -161,7 +167,8 @@ def run_forecasting(engine, periods: int = 30, use_synthetic_fallback: bool = Tr
         print(f"Writing {len(forecast_future)} forecast records to 'ml_forecasts' table...")
         try:
             with engine.begin() as conn:
-                conn.execute(text("DELETE FROM ml_forecasts WHERE ds >= CURRENT_DATE"))
+                min_ds = forecast_future["ds"].min().date()
+                conn.execute(text("DELETE FROM ml_forecasts WHERE ds >= :min_ds OR ds >= CURRENT_DATE"), {"min_ds": min_ds})
                 forecast_future.to_sql("ml_forecasts", con=conn, if_exists="append", index=False)
             print(f"Forecast successfully persisted! (Horizon: {periods} days, Elapsed: {time.time() - t0:.2f}s)")
         except Exception as e:

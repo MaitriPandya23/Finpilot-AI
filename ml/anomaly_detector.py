@@ -13,6 +13,11 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 try:
     from sqlalchemy import create_engine, text

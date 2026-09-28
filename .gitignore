@@ -224,3 +224,5 @@ node_modules/
 *.parquet
 /data-generator/output/
 .DS_Store
+   etl/data/
+   
