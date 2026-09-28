@@ -30,6 +30,7 @@ class RevenueSummaryResponse(BaseModel):
     growth_percentage: float = Field(..., description="Period-over-period growth")
     top_categories: List[CategoryRevenue]
     top_shops: List[ShopRevenue]
+    is_demo: bool = Field(False, description="True if using cold-start demo fallback")
 
 
 class TrendPoint(BaseModel):
@@ -43,6 +44,7 @@ class TrendsResponse(BaseModel):
     timeframe: str
     data_points: List[TrendPoint]
     total_points: int
+    is_demo: bool = Field(False, description="True if using cold-start demo fallback")
 
 
 class ForecastPoint(BaseModel):
@@ -57,6 +59,7 @@ class ForecastResponse(BaseModel):
     forecast_horizon_days: int
     generated_at: str
     forecast_data: List[ForecastPoint]
+    is_demo: bool = Field(False, description="True if using cold-start demo fallback")
 
 
 class AnomalyItem(BaseModel):
@@ -75,6 +78,7 @@ class AnomaliesResponse(BaseModel):
     critical_count: int
     warning_count: int
     items: List[AnomalyItem]
+    is_demo: bool = Field(False, description="True if using cold-start demo fallback")
 
 
 class RecommendationItem(BaseModel):
@@ -91,6 +95,7 @@ class RecommendationItem(BaseModel):
 class RecommendationsResponse(BaseModel):
     generated_at: str
     recommendations: List[RecommendationItem]
+    is_demo: bool = Field(False, description="True if using cold-start demo fallback")
 
 
 class HealthResponse(BaseModel):

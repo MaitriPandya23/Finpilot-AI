@@ -6,14 +6,16 @@ import { TrendsData } from "../lib/api";
 
 interface TrendsChartProps {
   data: TrendsData | null;
+  isLoading?: boolean;
 }
 
-export const TrendsChart: React.FC<TrendsChartProps> = ({ data }) => {
+export const TrendsChart: React.FC<TrendsChartProps> = ({ data, isLoading = false }) => {
   const [activeTab, setActiveTab] = useState<"7D" | "30D">("30D");
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   const rawPoints = data?.data_points || [];
   const points = activeTab === "7D" ? rawPoints.slice(-7) : rawPoints.slice(-30);
+  const isDemo = Boolean(data?.is_demo);
 
   const maxRevenue = Math.max(...points.map((p) => p.revenue), 1000);
   const chartHeight = 180;
@@ -26,6 +28,11 @@ export const TrendsChart: React.FC<TrendsChartProps> = ({ data }) => {
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <BarChart3 size={18} color="var(--accent-primary)" />
             <h2 style={{ fontSize: "1rem", fontWeight: 700 }}>Historical Revenue Trends</h2>
+            {isDemo && (
+              <span className="badge badge-warning" style={{ fontSize: "0.65rem", padding: "1px 6px" }}>
+                Demo Simulation
+              </span>
+            )}
           </div>
           <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
             Daily revenue totals and order volume momentum
@@ -62,11 +69,40 @@ export const TrendsChart: React.FC<TrendsChartProps> = ({ data }) => {
         </div>
       </div>
 
-      {/* SVG Interactive Chart */}
+      {/* Chart Canvas */}
       <div style={{ position: "relative", width: "100%", height: `${chartHeight + 40}px` }}>
-        {points.length === 0 ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)" }}>
-            Loading trend data...
+        {isLoading ? (
+          <div style={{ display: "flex", alignItems: "flex-end", gap: "8px", height: `${chartHeight}px`, width: "100%" }}>
+            {[40, 65, 50, 80, 55, 90, 70, 85, 60, 95, 75, 80].map((h, i) => (
+              <div
+                key={i}
+                style={{
+                  flex: 1,
+                  height: `${h}%`,
+                  borderRadius: "4px 4px 0 0",
+                  background: "rgba(99, 102, 241, 0.15)",
+                  animation: "pulse 1.5s infinite",
+                  animationDelay: `${i * 0.1}s`,
+                }}
+              />
+            ))}
+          </div>
+        ) : points.length === 0 ? (
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            height: `${chartHeight}px`,
+            gap: "8px",
+            color: "var(--text-muted)",
+            fontSize: "0.85rem",
+          }}>
+            <Calendar size={28} color="rgba(255,255,255,0.2)" />
+            <span>No historical revenue records yet in warehouse</span>
+            <span style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.3)" }}>
+              Run transaction generator or Kafka ingestion pipeline to populate trends
+            </span>
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", height: `${chartHeight}px`, width: "100%" }}>
@@ -128,19 +164,21 @@ export const TrendsChart: React.FC<TrendsChartProps> = ({ data }) => {
         )}
 
         {/* X-Axis labels */}
-        <div style={{
-          display: "flex",
-          justifyContent: "space-between",
-          marginTop: "10px",
-          paddingTop: "6px",
-          borderTop: "1px solid var(--border-subtle)",
-          fontSize: "0.7rem",
-          color: "var(--text-muted)",
-        }}>
-          <span>{points[0]?.date || "Start"}</span>
-          <span>{points[Math.floor(points.length / 2)]?.date || "Mid"}</span>
-          <span>{points[points.length - 1]?.date || "Latest"}</span>
-        </div>
+        {!isLoading && points.length > 0 && (
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginTop: "10px",
+            paddingTop: "6px",
+            borderTop: "1px solid var(--border-subtle)",
+            fontSize: "0.7rem",
+            color: "var(--text-muted)",
+          }}>
+            <span>{points[0]?.date || "Start"}</span>
+            <span>{points[Math.floor(points.length / 2)]?.date || "Mid"}</span>
+            <span>{points[points.length - 1]?.date || "Latest"}</span>
+          </div>
+        )}
       </div>
     </div>
   );
