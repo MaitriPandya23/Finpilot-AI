@@ -102,44 +102,56 @@ def run_consumer(
     batch_size: int = 10000,
     batch_timeout_sec: float = 5.0,
     max_batches: int = None,
+    group_id: str = "finpilot-bronze-consumer",
+    max_records: int = None,
+    idle_stop_timeout: float = 10.0,
 ):
     """Main consumer loop buffering records and periodically flushing to MinIO."""
     s3 = get_s3_client(MINIO_ENDPOINT, MINIO_USER, MINIO_PASSWORD)
-    consumer = create_kafka_consumer(bootstrap_servers, topic)
+    consumer = create_kafka_consumer(bootstrap_servers, topic, group_id=group_id)
 
     print(f"\n============================================================")
     print(f" Finpilot-AI Bronze Ingestion Consumer")
     print(f" Kafka Topic   : {topic}")
+    print(f" Consumer Group: {group_id}")
     print(f" MinIO Target  : s3://{BRONZE_BUCKET}/raw_transactions/")
     print(f" Batch Size    : {batch_size:,} records")
     print(f" Max Timeout   : {batch_timeout_sec}s")
+    if max_records:
+        print(f" Target Records: {max_records:,}")
     print(f"============================================================\n")
 
     current_batch = []
     batch_count = 0
     total_consumed = 0
     last_flush_time = time.time()
+    last_record_time = time.time()
 
     try:
         while True:
             poll_records = consumer.poll(timeout_ms=1000)
             now = time.time()
 
-            for topic_partition, records in poll_records.items():
-                for record in records:
-                    current_batch.append(record.value)
-                    total_consumed += 1
+            if poll_records:
+                last_record_time = now
+                for topic_partition, records in poll_records.items():
+                    for record in records:
+                        current_batch.append(record.value)
+                        total_consumed += 1
 
-                    if len(current_batch) >= batch_size:
-                        batch_count += 1
-                        flush_batch_to_minio(s3, BRONZE_BUCKET, current_batch, batch_count)
-                        consumer.commit()
-                        current_batch = []
-                        last_flush_time = now
+                        if len(current_batch) >= batch_size:
+                            batch_count += 1
+                            flush_batch_to_minio(s3, BRONZE_BUCKET, current_batch, batch_count)
+                            consumer.commit()
+                            current_batch = []
+                            last_flush_time = now
 
-                        if max_batches and batch_count >= max_batches:
-                            print(f"Reached maximum batch limit ({max_batches}). Stopping.")
-                            return
+                            if max_batches and batch_count >= max_batches:
+                                print(f"Reached maximum batch limit ({max_batches}). Stopping.")
+                                return
+                            if max_records and total_consumed >= max_records:
+                                print(f"Reached target record limit ({max_records:,}). Stopping.")
+                                return
 
             # Time-based flush if buffer has items
             if current_batch and (now - last_flush_time >= batch_timeout_sec):
@@ -152,6 +164,14 @@ def run_consumer(
                 if max_batches and batch_count >= max_batches:
                     print(f"Reached maximum batch limit ({max_batches}). Stopping.")
                     return
+                if max_records and total_consumed >= max_records:
+                    print(f"Reached target record limit ({max_records:,}). Stopping.")
+                    return
+
+            # If we have consumed messages and received nothing for idle_stop_timeout, all available records are consumed
+            if total_consumed > 0 and (now - last_record_time >= idle_stop_timeout):
+                print(f"No new messages for {idle_stop_timeout:.1f}s. All available messages consumed!")
+                break
 
     except KeyboardInterrupt:
         print("\nInterrupted by user. Flushing remaining buffer...")
@@ -171,6 +191,8 @@ def main():
     parser.add_argument("--batch-size", type=int, default=10000, help="Micro-batch size for MinIO upload")
     parser.add_argument("--timeout", type=float, default=5.0, help="Batch flush timeout in seconds")
     parser.add_argument("--max-batches", type=int, default=None, help="Stop after N batches (useful for jobs)")
+    parser.add_argument("--max-records", type=int, default=None, help="Stop after N records consumed")
+    parser.add_argument("--group-id", type=str, default="finpilot-bronze-consumer-earliest", help="Kafka consumer group ID")
 
     args = parser.parse_args()
     run_consumer(
@@ -179,6 +201,8 @@ def main():
         batch_size=args.batch_size,
         batch_timeout_sec=args.timeout,
         max_batches=args.max_batches,
+        group_id=args.group_id,
+        max_records=args.max_records,
     )
 
 
