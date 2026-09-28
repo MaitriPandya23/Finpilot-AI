@@ -7,9 +7,10 @@ interface HeaderProps {
   onRefresh: () => void;
   isLoading: boolean;
   lastUpdated: string;
+  isDemo?: boolean;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onRefresh, isLoading, lastUpdated }) => {
+export const Header: React.FC<HeaderProps> = ({ onRefresh, isLoading, lastUpdated, isDemo = false }) => {
   return (
     <header style={{
       display: "flex",
@@ -42,9 +43,15 @@ export const Header: React.FC<HeaderProps> = ({ onRefresh, isLoading, lastUpdate
             <h1 style={{ fontSize: "1.25rem", fontWeight: 800, letterSpacing: "-0.02em" }}>
               Finpilot<span style={{ color: "var(--accent-cyan)" }}>.AI</span>
             </h1>
-            <span className="badge badge-success" style={{ fontSize: "0.7rem", padding: "2px 8px" }}>
-              v1.0 Live
-            </span>
+            {isDemo ? (
+              <span className="badge badge-warning" style={{ fontSize: "0.7rem", padding: "2px 8px" }}>
+                Cold-Start Demo Mode
+              </span>
+            ) : (
+              <span className="badge badge-success" style={{ fontSize: "0.7rem", padding: "2px 8px" }}>
+                Live PostgreSQL Warehouse
+              </span>
+            )}
           </div>
           <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
             Enterprise Big Data BI & Predictive Intelligence Platform
