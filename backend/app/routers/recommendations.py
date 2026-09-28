@@ -4,6 +4,7 @@ Generates prescriptive business recommendations by synthesizing trend momentum,
 category velocity, and fraud anomaly indicators.
 """
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text

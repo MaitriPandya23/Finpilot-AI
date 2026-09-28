@@ -3,6 +3,7 @@ Finpilot-AI ML Anomalies BI Endpoints
 Exposes flagged transaction outliers, severity classifications, and diagnostic reasons.
 """
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text

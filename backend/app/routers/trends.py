@@ -3,6 +3,7 @@ Finpilot-AI Historical Trends BI Endpoints
 Provides time-series aggregations (daily, weekly, monthly) of revenue and transaction volume.
 """
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text

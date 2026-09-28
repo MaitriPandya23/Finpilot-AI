@@ -3,6 +3,7 @@ Finpilot-AI Revenue BI Endpoints
 Exposes aggregate revenue KPIs, top categories, and top store performance.
 """
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text

@@ -3,6 +3,7 @@ Finpilot-AI ML Forecast Endpoints
 Exposes Meta Prophet revenue forecast projections with confidence bounds.
 """
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
