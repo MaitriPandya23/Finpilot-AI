@@ -8,6 +8,8 @@ import { ForecastChart } from "../components/ForecastChart";
 import { CategoryBreakdown } from "../components/CategoryBreakdown";
 import { AnomalyTable } from "../components/AnomalyTable";
 import { RecommendationsPanel } from "../components/RecommendationsPanel";
+import { UploadModal } from "../components/UploadModal";
+import { UploadCloud } from "lucide-react";
 import {
   fetchRevenueSummary,
   fetchTrends,
@@ -30,6 +32,7 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [lastUpdated, setLastUpdated] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isUploadOpen, setIsUploadOpen] = useState<boolean>(false);
 
   const loadAllData = async () => {
     setIsLoading(true);
@@ -72,13 +75,21 @@ export default function DashboardPage() {
   );
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", backgroundColor: "#090d16", color: "#f8fafc" }}>
       {/* Top Navigation */}
       <Header
         onRefresh={loadAllData}
+        onOpenUpload={() => setIsUploadOpen(true)}
         isLoading={isLoading}
         lastUpdated={lastUpdated}
         isDemo={isDemoMode}
+      />
+
+      {/* CSV Ingestion Modal */}
+      <UploadModal
+        isOpen={isUploadOpen}
+        onClose={() => setIsUploadOpen(false)}
+        onUploadSuccess={loadAllData}
       />
 
       {/* Main Content Dashboard Container */}
@@ -108,24 +119,41 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Informative Cold-Start Notice */}
+        {/* Informative Cold-Start Notice with CSV Upload Action */}
         {!isLoading && !errorMessage && isDemoMode && (
           <div style={{
             background: "rgba(245, 158, 11, 0.08)",
             border: "1px solid rgba(245, 158, 11, 0.22)",
-            borderRadius: "10px",
-            padding: "10px 18px",
+            borderRadius: "12px",
+            padding: "14px 20px",
             marginBottom: "20px",
-            fontSize: "0.8rem",
+            fontSize: "0.82rem",
             color: "var(--accent-amber)",
             display: "flex",
             alignItems: "center",
-            gap: "10px",
+            justifyContent: "space-between",
+            gap: "16px",
+            flexWrap: "wrap",
           }}>
-            <span style={{ fontSize: "1rem" }}>ℹ️</span>
-            <span>
-              <strong>Cold-Start Simulation Active:</strong> PostgreSQL database is currently awaiting live transaction ingestion. You are previewing synthetic baseline KPIs and predictive simulations. Live database results take priority automatically as data streams in.
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1 }}>
+              <span style={{ fontSize: "1.2rem" }}>⚡</span>
+              <div>
+                <strong>Cold-Start Simulation Active:</strong> Currently previewing synthetic baseline KPIs and predictive simulations. Upload your transaction CSV to immediately analyze your live store sales!
+              </div>
+            </div>
+            <button
+              onClick={() => setIsUploadOpen(true)}
+              className="btn-primary"
+              style={{
+                fontSize: "0.78rem",
+                padding: "8px 16px",
+                whiteSpace: "nowrap",
+                boxShadow: "0 4px 14px rgba(99, 102, 241, 0.4)",
+              }}
+            >
+              <UploadCloud size={15} />
+              <span>Upload CSV Data</span>
+            </button>
           </div>
         )}
 

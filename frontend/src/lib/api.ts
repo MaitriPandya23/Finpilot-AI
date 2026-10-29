@@ -166,3 +166,39 @@ export async function fetchRecommendations(): Promise<RecommendationsData> {
 export async function fetchHealth(): Promise<HealthData> {
   return apiFetch<HealthData>("/health");
 }
+
+export interface UploadResponse {
+  success: boolean;
+  message: string;
+  filename?: string;
+  schema_detected?: string;
+  total_rows: number;
+  valid_rows: number;
+  inserted_rows: number;
+  rejected_rows?: number;
+  duplicate_count: number;
+  return_count?: number;
+  quality_score: number;
+  detected_columns: string[];
+  missing_required_columns: string[];
+  warnings: string[];
+  sample_preview: Record<string, any>[];
+}
+
+export async function uploadCSVFile(file: File): Promise<UploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const url = `${API_BASE_URL}/upload`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    body: formData,
+  });
+
+  const data = await res.json();
+  return data as UploadResponse;
+}
+
+export function getSampleCsvUrl(): string {
+  return `${API_BASE_URL}/upload/sample`;
+}

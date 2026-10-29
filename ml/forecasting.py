@@ -27,10 +27,20 @@ except ImportError:
     create_engine = None
     text = None
 
-DEFAULT_DB_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://finpilot_user:finpilot_pass@localhost:5432/finpilot"
-)
+def get_default_db_url() -> str:
+    if os.getenv("DATABASE_URL"):
+        return os.environ["DATABASE_URL"]
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    root_db = os.path.join(repo_root, "finpilot_local.db")
+    if os.path.exists(root_db):
+        return f"sqlite:///{root_db}"
+    cur_db = os.path.abspath("finpilot_local.db")
+    if os.path.exists(cur_db):
+        return f"sqlite:///{cur_db}"
+    return f"sqlite:///{root_db}"
+
+
+DEFAULT_DB_URL = get_default_db_url()
 
 
 # Robust Prophet import with statistical fallback
@@ -44,6 +54,7 @@ except ImportError:
 
 def fetch_historical_revenue(engine) -> pd.DataFrame:
     """Queries daily aggregated revenue from fact_sales + dim_date."""
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
     query = """
         SELECT
             d.date_actual AS ds,
@@ -51,16 +62,18 @@ def fetch_historical_revenue(engine) -> pd.DataFrame:
             COUNT(f.sales_key) AS order_count
         FROM dim_date d
         LEFT JOIN fact_sales f ON d.date_key = f.date_key
-        WHERE d.date_actual <= CURRENT_DATE
+        WHERE d.date_actual <= :today
         GROUP BY d.date_actual
         HAVING SUM(f.total_amount) > 0
         ORDER BY d.date_actual ASC;
     """
     try:
         with engine.connect() as conn:
-            df = pd.read_sql(query, conn)
-            df["ds"] = pd.to_datetime(df["ds"])
-            df["y"] = df["y"].astype(float)
+            res = conn.execute(text(query), {"today": today_str})
+            df = pd.DataFrame(res.fetchall(), columns=res.keys())
+            if not df.empty:
+                df["ds"] = pd.to_datetime(df["ds"])
+                df["y"] = df["y"].astype(float)
             return df
     except Exception as e:
         print(f"Database query warning: {e}")
@@ -162,14 +175,33 @@ def run_forecasting(engine, periods: int = 30, use_synthetic_fallback: bool = Tr
     forecast_future["model_version"] = "prophet_v1"
     forecast_future["generated_at"] = datetime.utcnow()
 
-    # Save to PostgreSQL if available
+    # Save to PostgreSQL / SQLite if available
     if engine and SQLALCHEMY_AVAILABLE:
         print(f"Writing {len(forecast_future)} forecast records to 'ml_forecasts' table...")
         try:
             with engine.begin() as conn:
-                min_ds = forecast_future["ds"].min().date()
-                conn.execute(text("DELETE FROM ml_forecasts WHERE ds >= :min_ds OR ds >= CURRENT_DATE"), {"min_ds": min_ds})
-                forecast_future.to_sql("ml_forecasts", con=conn, if_exists="append", index=False)
+                min_ds = forecast_future["ds"].min()
+                min_ds_val = min_ds.date() if hasattr(min_ds, "date") and callable(min_ds.date) else str(min_ds).split("T")[0]
+                today_str = datetime.utcnow().strftime("%Y-%m-%d")
+                conn.execute(text("DELETE FROM ml_forecasts WHERE ds >= :min_ds OR ds >= :today"), {"min_ds": min_ds_val, "today": today_str})
+                records = []
+                for _, r in forecast_future.iterrows():
+                    ds_val = r["ds"]
+                    py_ds = ds_val.date() if hasattr(ds_val, "date") and callable(ds_val.date) else ds_val
+                    gen_val = r["generated_at"]
+                    py_gen = gen_val.to_pydatetime() if hasattr(gen_val, "to_pydatetime") else gen_val
+                    records.append({
+                        "ds": py_ds,
+                        "yhat": float(r["yhat"]),
+                        "yhat_lower": float(r["yhat_lower"]),
+                        "yhat_upper": float(r["yhat_upper"]),
+                        "model_version": str(r["model_version"]),
+                        "generated_at": py_gen,
+                    })
+                conn.execute(text("""
+                    INSERT INTO ml_forecasts (ds, yhat, yhat_lower, yhat_upper, model_version, generated_at)
+                    VALUES (:ds, :yhat, :yhat_lower, :yhat_upper, :model_version, :generated_at)
+                """), records)
             print(f"Forecast successfully persisted! (Horizon: {periods} days, Elapsed: {time.time() - t0:.2f}s)")
         except Exception as e:
             print(f"Database persistence skipped/failed: {e}")
@@ -182,12 +214,22 @@ def run_forecasting(engine, periods: int = 30, use_synthetic_fallback: bool = Tr
 
 def main():
     parser = argparse.ArgumentParser(description="Finpilot-AI Revenue Forecasting")
-    parser.add_argument("--db-url", type=str, default=DEFAULT_DB_URL, help="PostgreSQL connection string")
+    parser.add_argument("--db-url", type=str, default=DEFAULT_DB_URL, help="Database connection string (SQLite or PostgreSQL)")
     parser.add_argument("--periods", type=int, default=30, help="Days to forecast ahead (default: 30)")
     parser.add_argument("--demo", action="store_true", help="Run in standalone demo mode without connecting to database")
     args = parser.parse_args()
 
-    engine = create_engine(args.db_url) if (SQLALCHEMY_AVAILABLE and not args.demo) else None
+    engine = None
+    if SQLALCHEMY_AVAILABLE and not args.demo:
+        try:
+            candidate_engine = create_engine(args.db_url)
+            with candidate_engine.connect() as conn:
+                pass
+            engine = candidate_engine
+        except Exception as conn_err:
+            print(f"Notice: Database connection at {args.db_url} unavailable ({conn_err}). Running in demo mode.")
+            engine = None
+
     run_forecasting(engine, periods=args.periods)
 
 

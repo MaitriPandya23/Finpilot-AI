@@ -4,7 +4,7 @@ Exposes aggregate revenue KPIs, top categories, and top store performance.
 """
 
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional
@@ -21,7 +21,20 @@ def get_revenue_summary(
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
 ):
-    """Fetches high-level executive revenue metrics and distribution breakdowns."""
+    # Validate date parameters strictly
+    if start_date:
+        try:
+            datetime.strptime(start_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format. Expected YYYY-MM-DD.")
+    if end_date:
+        try:
+            datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format. Expected YYYY-MM-DD.")
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date cannot be after end_date.")
+
     try:
         # Check if database has any sales records globally
         has_any_data = db.execute(text("SELECT 1 FROM fact_sales LIMIT 1;")).scalar() is not None
@@ -70,7 +83,9 @@ def get_revenue_summary(
                 COALESCE(SUM(f.total_amount), 0.0) AS total_rev,
                 COUNT(f.sales_key) AS total_orders,
                 COALESCE(AVG(f.total_amount), 0.0) AS avg_aov,
-                COALESCE(SUM(f.quantity), 0) AS total_units
+                COALESCE(SUM(f.quantity), 0) AS total_units,
+                COALESCE(SUM(CASE WHEN f.total_amount > 0 THEN f.total_amount ELSE 0.0 END), 0.0) AS gross_rev,
+                COALESCE(SUM(CASE WHEN f.total_amount < 0 THEN ABS(f.total_amount) ELSE 0.0 END), 0.0) AS returns_amt
             FROM fact_sales f
             JOIN dim_date d ON f.date_key = d.date_key
             {date_filter};
@@ -81,6 +96,8 @@ def get_revenue_summary(
         total_orders = int(kpi_row[1]) if kpi_row and kpi_row[1] is not None else 0
         avg_aov = round(float(kpi_row[2]), 2) if kpi_row and kpi_row[2] is not None else 0.0
         total_units = int(kpi_row[3]) if kpi_row and kpi_row[3] is not None else 0
+        gross_rev = round(float(kpi_row[4]), 2) if kpi_row and kpi_row[4] is not None else 0.0
+        returns_amt = round(float(kpi_row[5]), 2) if kpi_row and kpi_row[5] is not None else 0.0
 
         # If data exists in DB, but this specific date range has 0 orders, return genuine empty summary
         if total_orders == 0:
@@ -173,6 +190,8 @@ def get_revenue_summary(
 
         return RevenueSummaryResponse(
             total_revenue=round(total_rev, 2),
+            gross_revenue=gross_rev,
+            returns_amount=returns_amt,
             total_orders=total_orders,
             avg_order_value=avg_aov,
             total_units_sold=total_units,

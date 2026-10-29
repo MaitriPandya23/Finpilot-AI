@@ -23,7 +23,9 @@ class ShopRevenue(BaseModel):
 
 
 class RevenueSummaryResponse(BaseModel):
-    total_revenue: float = Field(..., description="Total aggregate revenue in USD")
+    total_revenue: float = Field(..., description="Total aggregate net revenue in USD")
+    gross_revenue: Optional[float] = Field(None, description="Gross sales revenue before returns")
+    returns_amount: Optional[float] = Field(None, description="Total returns and refunds amount")
     total_orders: int = Field(..., description="Total transaction volume")
     avg_order_value: float = Field(..., description="Average Basket Value")
     total_units_sold: int = Field(..., description="Total items sold")
@@ -102,4 +104,24 @@ class HealthResponse(BaseModel):
     status: str
     timestamp: str
     database: str
+    database_dialect: Optional[str] = None
     version: str
+    services: Optional[Dict[str, str]] = None
+
+
+class UploadResponse(BaseModel):
+    success: bool
+    message: str
+    filename: Optional[str] = None
+    schema_detected: Optional[str] = "Canonical Finpilot"
+    total_rows: int = 0
+    valid_rows: int = 0
+    inserted_rows: int = 0
+    rejected_rows: int = 0
+    duplicate_count: int = 0
+    return_count: int = 0
+    quality_score: float = 0.0
+    detected_columns: List[str] = Field(default_factory=list)
+    missing_required_columns: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    sample_preview: List[Dict] = Field(default_factory=list)

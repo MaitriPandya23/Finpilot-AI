@@ -56,8 +56,15 @@ def populate_dim_date(engine, start_date: str = "2024-01-01", end_date: str = "2
         # Check existing count
         existing = conn.execute(text("SELECT COUNT(*) FROM dim_date")).scalar()
         if existing == 0:
-            df_dates.to_sql("dim_date", con=conn, if_exists="append", index=False)
-            print(f"Inserted {len(df_dates):,} dates into dim_date.")
+            conn.execute(
+                text("""
+                    INSERT INTO dim_date (date_key, date_actual, day_of_week, day_name, day_of_month, month, month_name, quarter, year, is_weekend)
+                    VALUES (:date_key, :date_actual, :day_of_week, :day_name, :day_of_month, :month, :month_name, :quarter, :year, :is_weekend)
+                    ON CONFLICT (date_key) DO NOTHING
+                """),
+                dates
+            )
+            print(f"Inserted {len(dates):,} dates into dim_date.")
         else:
             print(f"dim_date already populated with {existing:,} dates.")
 
@@ -187,11 +194,21 @@ def load_dataset_to_warehouse(engine, source_path: str, chunk_size: int = 50_000
 
     # 5. Fast Bulk Insertion into fact_sales
     print(f"Loading {len(fact_records):,} fact records into fact_sales (chunk size: {chunk_size:,})...")
-    with engine.begin() as conn:
-        for idx in range(0, len(fact_records), chunk_size):
-            chunk = fact_records.iloc[idx : idx + chunk_size]
-            chunk.to_sql("fact_sales", con=conn, if_exists="append", index=False, method=psql_insert_copy)
-            print(f"Inserted chunk {idx // chunk_size + 1}: rows {idx:,} to {idx + len(chunk):,}")
+    import io
+    raw_conn = engine.raw_connection()
+    try:
+        with raw_conn.cursor() as cur:
+            for idx in range(0, len(fact_records), chunk_size):
+                chunk = fact_records.iloc[idx : idx + chunk_size]
+                s_buf = io.StringIO()
+                chunk.to_csv(s_buf, index=False, header=False)
+                s_buf.seek(0)
+                cols = ', '.join(f'"{c}"' for c in chunk.columns)
+                cur.copy_expert(f'COPY fact_sales ({cols}) FROM STDIN WITH CSV', s_buf)
+                print(f"Inserted chunk {idx // chunk_size + 1}: rows {idx:,} to {idx + len(chunk):,}")
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
 
     elapsed = time.time() - t0
     print(f"\nWarehouse load completed in {elapsed:.2f}s ({len(fact_records) / max(elapsed, 0.001):,.0f} rows/s)!")

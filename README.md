@@ -5,317 +5,301 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111.0-009688.svg?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
 [![Next.js](https://img.shields.io/badge/Next.js-14.2.3-black.svg?style=flat&logo=next.js)](https://nextjs.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg?style=flat&logo=postgresql)](https://www.postgresql.org)
+[![SQLite](https://img.shields.io/badge/SQLite-Zero--Config-003B57.svg?style=flat&logo=sqlite)](https://sqlite.org)
 [![Apache Kafka](https://img.shields.io/badge/Apache_Kafka-7.4.0-231F20.svg?style=flat&logo=apachekafka)](https://kafka.apache.org)
 [![PySpark](https://img.shields.io/badge/PySpark-3.5.1-E25A1C.svg?style=flat&logo=apachespark)](https://spark.apache.org)
 [![MinIO](https://img.shields.io/badge/MinIO-RELEASE-C72C48.svg?style=flat&logo=minio)](https://min.io)
 [![Prophet](https://img.shields.io/badge/ML-Meta_Prophet-blue.svg)](https://facebook.github.io/prophet/)
 [![Scikit-Learn](https://img.shields.io/badge/ML-Isolation_Forest-F7931E.svg?style=flat&logo=scikit-learn)](https://scikit-learn.org)
 
-Finpilot-AI is an end-to-end, production-grade Big Data Engineering and AI analytics platform. It ingests high-velocity retail transactions at scale (2M–5M+ rows), streams events through **Apache Kafka**, stores raw and refined datasets in a **MinIO S3 Lakehouse** via **PySpark (Bronze ➔ Silver ➔ Gold Medallion architecture)**, loads a Kimball star-schema **PostgreSQL** warehouse, applies **Meta Prophet** for revenue forecasting and **Scikit-Learn Isolation Forest** for fraud/outlier detection, and serves real-time insights through a **FastAPI** gateway to a modern **Next.js 14** executive dashboard.
+Finpilot-AI is a retail analytics and intelligence platform. It provides executive KPI metrics, interactive revenue trends, machine-learning revenue forecasting, automated sales anomaly detection, and business recommendations.
 
 ---
 
-## 🏗️ End-to-End System Architecture & Data Flow
-
-```mermaid
-flowchart TD
-    subgraph DataGen ["1. Synthetic Transaction Generator"]
-        DG["Synthetic Event Generator<br/>(Faker, NumPy, Zipfian)"]
-        CSV["retail_transactions.csv<br/>(2M - 5M+ Records)"]
-        DG -->|Batch Generation| CSV
-    end
-
-    subgraph Streaming ["2. Real-Time Streaming Ingestion"]
-        KP["Kafka Producer<br/>(ingestion/producer.py)"]
-        KB["Kafka Broker<br/>(Topic: retail-transactions)"]
-        KC["Kafka Consumer<br/>(ingestion/consumer.py)"]
-        CSV -->|Stream Events| KP
-        KP -->|JSON Messages| KB
-        KB -->|Micro-Batches| KC
-    end
-
-    subgraph Lakehouse ["3. MinIO S3 Medallion Lakehouse"]
-        Bronze[("Bronze Bucket<br/>s3a://bronze/raw_transactions/")]
-        Silver[("Silver Bucket<br/>s3a://silver/transactions/")]
-        Gold[("Gold Bucket<br/>s3a://gold/fact_sales/")]
-        SP["PySpark Medallion Engine<br/>(etl/spark_etl.py)"]
-        
-        KC -->|Flush JSON Batches| Bronze
-        Bronze -->|Ingest Raw Data| SP
-        SP -->|Schema Validation & Deduplication| Silver
-        SP -->|Business Dimensions & Aggregations| Gold
-    end
-
-    subgraph Warehouse ["4. Relational Star Schema (PostgreSQL)"]
-        LG["Gold Loader<br/>(warehouse/load_gold.py)"]
-        PG[("PostgreSQL 16 Warehouse<br/>• fact_sales<br/>• dim_product, dim_shop<br/>• dim_customer, dim_date")]
-        Gold -->|Bulk Parquet Ingestion| LG
-        LG -->|SQLAlchemy Insert| PG
-    end
-
-    subgraph ML ["5. Machine Learning Intelligence Engine"]
-        MLP["ML Orchestrator<br/>(ml/run_pipeline.py)"]
-        Prophet["Meta Prophet<br/>Time-Series Forecasting"]
-        IsoForest["Scikit-Learn<br/>Isolation Forest Anomaly Detection"]
-        
-        PG -->|Historical Time-Series| MLP
-        MLP -->|Fit Daily Revenue| Prophet
-        MLP -->|Fit Multi-Feature Outliers| IsoForest
-        Prophet -->|Write ml_forecasts (yhat, bounds)| PG
-        IsoForest -->|Write ml_anomalies (score, severity)| PG
-    end
-
-    subgraph Gateway ["6. Backend REST API Gateway (FastAPI)"]
-        API["FastAPI App<br/>(backend/app/main.py)"]
-        R1["GET /revenue"]
-        R2["GET /trends"]
-        R3["GET /forecast"]
-        R4["GET /anomalies"]
-        R5["GET /recommendations"]
-        
-        PG <-->|SQLAlchemy ORM + Connection Pooling| API
-        API --- R1 & R2 & R3 & R4 & R5
-    end
-
-    subgraph Presentation ["7. Executive Presentation Layer (Next.js 14)"]
-        FE["Next.js Executive Dashboard<br/>(TypeScript + Tailwind + Recharts)"]
-        KPI["KPI Executive Summary<br/>(Revenue, AOV, Volume, Anomalies)"]
-        TR["Revenue Trends Chart<br/>(Daily / Weekly / Monthly)"]
-        FC["Prophet Forecast Chart<br/>(95% Confidence Corridor)"]
-        CAT["Category Mix & Shop Rankings"]
-        ANOM["Flagged Outlier Audit Table"]
-        REC["Prescriptive AI Recommendations"]
-        
-        R1 & R2 & R3 & R4 & R5 -->|Live Typed Fetch (api.ts)| FE
-        FE --- KPI & TR & FC & CAT & ANOM & REC
-    end
-
-    style DataGen fill:#f8fafc,stroke:#64748b,stroke-width:2px;
-    style Streaming fill:#eff6ff,stroke:#3b82f6,stroke-width:2px;
-    style Lakehouse fill:#fefce8,stroke:#eab308,stroke-width:2px;
-    style Warehouse fill:#f0fdf4,stroke:#22c55e,stroke-width:2px;
-    style ML fill:#faf5ff,stroke:#a855f7,stroke-width:2px;
-    style Gateway fill:#f0fdfa,stroke:#14b8a6,stroke-width:2px;
-    style Presentation fill:#fff1f2,stroke:#f43f5e,stroke-width:2px;
-```
-
----
-
-## ✨ Key Platform Features
-
-### 1. High-Throughput Synthetic Data Generation
-* **Scale**: Generates anywhere from 100,000 to **5,000,000+** realistic retail transactions in chunked memory-efficient streams.
-* **Realistic Consumer Dynamics**: Employs Zipfian distributions for customer IDs to simulate repeat customer loyalty, varied order sizes, seasonal sales spikes, and weekend traffic surges.
-* **Outlier Injection**: Automatically seeds intentional pricing glitches, bulk fraud attempts, and payment anomalies for ML validation.
-
-### 2. Event-Driven Streaming Ingestion
-* **Apache Kafka**: High-throughput message broker decoupled from the storage layer to handle transaction spikes seamlessly.
-* **Streaming Producer**: Emits transaction events serialized as JSON to Kafka topic `retail-transactions`.
-* **Micro-Batch Consumer**: Batches incoming messages in configurable chunks (default: 10,000 rows) and flushes them directly into MinIO S3 object storage.
-
-### 3. Medallion Lakehouse Architecture (PySpark + MinIO)
-* **Bronze Layer**: Raw, immutable transaction dumps landed directly from the Kafka consumer (`s3a://bronze/raw_transactions/`).
-* **Silver Layer**: Cleaned, deduplicated, and typed data with validated timestamps, standardized currencies, and null-filtered fields (`s3a://silver/transactions/`).
-* **Gold Layer**: Optimized business dimensions and fact tables aggregated by date, product category, customer segment, and retail store (`s3a://gold/fact_sales/`).
-* **Dual Execution Modes**: Supports both distributed S3/MinIO mode and lightweight local-filesystem mode for fast developer onboarding.
-
-### 4. Kimball Star Schema Data Warehouse
-* **Engine**: PostgreSQL 16 relational warehouse with indexed foreign keys and partition-ready DDL.
-* **Star Schema Entities**:
-  * **Fact**: `fact_sales` (transaction amounts, quantities, unit prices, discounts, payment methods, timestamps).
-  * **Dimensions**: `dim_date`, `dim_product`, `dim_shop`, `dim_customer`.
-  * **ML Entities**: `ml_forecasts`, `ml_anomalies`.
-* **Reliable Loader**: Automated loader (`warehouse/load_gold.py`) bulk-upserts Parquet data into PostgreSQL using transactional batches.
-
-### 5. Dual Machine Learning Engines
-* **Meta Prophet Revenue Forecaster** (`ml/forecasting.py`):
-  * Learns daily, weekly, and annual seasonality curves.
-  * Predicts revenue for configurable horizons (7 to 90 days).
-  * Outputs expected point estimates (`yhat`) alongside 95% Bayesian confidence bands (`yhat_lower`, `yhat_upper`).
-* **Scikit-Learn Isolation Forest Anomaly Detector** (`ml/anomaly_detector.py`):
-  * Multi-dimensional feature vector: transaction amount, order quantity, unit price, and transaction hour.
-  * Assigns continuous anomaly scores and maps them to actionable severity ratings (`Critical` vs. `Warning`).
-  * Generates human-readable diagnostic explanations for auditors.
-* **Prescriptive AI Engine** (`backend/app/routers/recommendations.py`):
-  * Synthesizes live warehouse analytics and anomaly patterns into prioritized executive action cards (inventory restock alerts, fraud investigation triggers, pricing optimization).
-
-### 6. High-Performance FastAPI Gateway
-* **Real Database Prioritization**: Live queries against the PostgreSQL star schema take precedence over all endpoints.
-* **Resilient Cold-Start Fallback**: If the database tables are empty on first boot, endpoints seamlessly return representative demo data with an explicit `is_demo: true` marker, preventing dashboard crashes.
-* **Comprehensive Endpoint Suite**:
-  * `GET /revenue`: Total revenue, order count, AOV, period-over-period growth, category breakdowns, and shop rankings.
-  * `GET /trends`: Chronological time-series with dynamic grouping (`daily`, `weekly`, `monthly`).
-  * `GET /forecast`: Future revenue curves with 95% confidence intervals.
-  * `GET /anomalies`: Flagged outlier transactions filtered by severity and limit.
-  * `GET /recommendations`: Dynamic prescriptive operational actions.
-  * `GET /health`: Live database connectivity status check.
-  * `GET /docs`: Interactive Swagger UI documentation.
-
-### 7. Modern Executive BI Dashboard (Next.js 14)
-* **Design & Aesthetics**: Dark slate modern executive palette (`slate-900`/`emerald-500`/`indigo-500`) built with Tailwind CSS.
-* **Interactive Visualizations**: Recharts-powered area charts with shaded confidence corridors, multi-bar volume comparisons, and category progress meters.
-* **Dynamic Status Badging**: Live header pill showing `Live PostgreSQL Warehouse` or `Cold-Start Demo Mode` based on actual backend data state.
-* **Polish & Ergonomics**: Shimmering skeleton loaders during data fetch, responsive layouts, and informative empty-state guides.
-
----
-
-## 📂 Repository File Layout
+## 🧭 Architecture & Workflow Priority
 
 ```
-finpilot-ai/
-├── data-generator/           # High-speed synthetic transaction generator
-│   ├── generate.py           # Chunked streaming data generator (2M-5M rows)
-│   ├── requirements.txt      # Faker, numpy, pandas
-│   └── Dockerfile
-├── ingestion/                # Event streaming pipeline
-│   ├── producer.py           # Reads raw data & streams JSON to Kafka
-│   ├── consumer.py           # Consumes Kafka stream & writes Bronze MinIO S3
-│   ├── requirements.txt      # kafka-python, boto3
-│   └── Dockerfile
-├── etl/                      # PySpark Lakehouse ETL engine
-│   ├── spark_etl.py          # Bronze ➔ Silver (cleansing) ➔ Gold (star schema)
-│   ├── requirements.txt      # pyspark, pyarrow, boto3
-│   └── Dockerfile
-├── warehouse/                # Relational Data Warehouse
-│   ├── schema.sql            # Star schema DDL & indexes for PostgreSQL
-│   ├── load_gold.py          # Parquet to PostgreSQL bulk loader
-│   └── requirements.txt      # sqlalchemy, psycopg2-binary, pyarrow
-├── ml/                       # Machine Learning models
-│   ├── forecasting.py        # Meta Prophet revenue forecasting model
-│   ├── anomaly_detector.py   # Isolation Forest outlier detection
-│   ├── run_pipeline.py       # End-to-end ML training & database writing script
-│   ├── requirements.txt      # prophet, scikit-learn, pandas, sqlalchemy
-│   └── Dockerfile
-├── backend/                  # FastAPI REST API Gateway
-│   ├── app/
-│   │   ├── main.py           # FastAPI entrypoint, CORS & routers
-│   │   ├── database.py       # SQLAlchemy engine & session pool
-│   │   ├── models.py         # ORM models for star schema & ML tables
-│   │   ├── schemas.py        # Pydantic response contracts (with is_demo flags)
-│   │   └── routers/          # /revenue, /trends, /forecast, /anomalies, /recommendations
-│   ├── requirements.txt      # fastapi, uvicorn, sqlalchemy, psycopg2-binary
-│   └── Dockerfile
-├── frontend/                 # Executive Next.js 14+ Dashboard
-│   ├── src/
-│   │   ├── app/              # Next.js App Router (layout.tsx, page.tsx, globals.css)
-│   │   ├── components/       # KPICards, TrendsChart, ForecastChart, AnomalyTable, etc.
-│   │   └── lib/api.ts        # Typed resilient API client with timeout & fallback
-│   ├── package.json
-│   ├── tailwind.config.ts
-│   └── Dockerfile
-├── docker-compose.yml        # Orchestrates Postgres, MinIO, Kafka, Zookeeper, Backend, Frontend
-└── .env.example              # Environment configuration template
+┌────────────────────────────────────────────────────────────────────────┐
+│                        PRIMARY USER WORKFLOW                          │
+│                                                                        │
+│   CSV Upload (Drag & Drop or API) ──► Validation & Schema Normalizer   │
+│   (Canonical Finpilot OR Kaggle)       (BOM/UTF-8, Types, Returns)     │
+│                     │                                                  │
+│                     ▼                                                  │
+│   Kimball Star Schema Data Warehouse (PostgreSQL or SQLite)            │
+│   ├── fact_sales (idempotent, return-aware, gross/net reconciliation)  │
+│   └── dim_date, dim_shop, dim_product, dim_customer                    │
+│                     │                                                  │
+│                     ▼                                                  │
+│   Analytics & ML Engines ──────────► Next.js Executive Dashboard       │
+│   (Prophet + Fallback, Isolation      (KPIs, Trends, Anomaly Audits,   │
+│    Forest, Recommendations)            Forecasting, Real-time Refresh) │
+└────────────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────┐
+│                   OPTIONAL BIG DATA WORKFLOWS                          │
+│                                                                        │
+│   Kafka Streaming:  POS Generator ──► Producer ──► Consumer ──► MinIO  │
+│   PySpark Lakehouse: Bronze JSON ──► Silver Parquet ──► Gold Analytics │
+└────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Important**:
+> **CSV Upload is the primary, zero-dependency workflow**. You can run and demonstrate the entire platform locally using SQLite without needing Docker, Kafka, PySpark, MinIO, or cloud credentials.
+> Apache Kafka and PySpark/MinIO are **optional big-data pipelines** that can be started and tested independently.
 
 ---
 
-## ⚡ Quickstart: Docker Compose
+## 📋 Prerequisites
 
-You can launch all infrastructure and applications with Docker Compose:
+| Component | Minimum Version | Required For |
+| :--- | :--- | :--- |
+| **Python** | 3.10+ | Backend API, Data Generator, ML Models |
+| **Node.js** | 18+ (with npm) | Next.js Frontend Dashboard |
+| **Docker & Compose** *(Optional)* | Docker 24+, Compose v2+ | Full-stack containerized deployment |
+| **Java / Spark** *(Optional)* | Java 11+, Spark 3.5+ | Distributed Lakehouse ETL |
 
+---
+
+## ⚡ Quickstart: Local Zero-Dependency Setup (Recommended for Demo)
+
+Run the backend and frontend locally in seconds using SQLite:
+
+### 1. Configure Local Environment
 ```bash
-# 1. Clone repository and navigate to project root
-cd /path/to/Finpilot-AI
+# Clone or navigate to the repository
+cd Finpilot-AI
 
-# 2. Setup environment configuration
+# Create your local environment file
 cp .env.example .env
-
-# 3. Build and run all services in background
-docker compose up --build -d
 ```
+For local zero-dependency mode, SQLite is enabled by default (`sqlite:///./finpilot_local.db`).
 
-### Services & Port Mappings
-| Service | Role | Container Port | Host Port | Web Access URL |
-| :--- | :--- | :--- | :--- | :--- |
-| **Frontend** | Executive Next.js 14 Dashboard | `3000` | `3000` | [http://localhost:3000](http://localhost:3000) |
-| **Backend API** | FastAPI REST Gateway | `8000` | `8000` | [http://localhost:8000/docs](http://localhost:8000/docs) |
-| **PostgreSQL** | Star Schema Data Warehouse | `5432` | `5432` | `localhost:5432` (`finpilot` / `finpilot_user`) |
-| **MinIO Console**| S3 Storage Web UI | `9001` | `9001` | [http://localhost:9001](http://localhost:9001) (`admin` / `admin12345`) |
-| **MinIO API** | S3 API Endpoint | `9000` | `9000` | `http://localhost:9000` |
-| **Kafka Broker**| Distributed Event Streaming | `29092` | `29092` | `localhost:29092` |
-| **Zookeeper** | Kafka Coordinator | `2181` | `2181` | `localhost:2181` |
+### 2. Start the Backend API
+```bash
+# Install backend dependencies
+cd backend
+pip install -r requirements.txt
+
+# Start FastAPI server on port 8000
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+* Backend API: [http://127.0.0.1:8000](http://127.0.0.1:8000)
+* Interactive Swagger Docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+* Health Check: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+
+### 3. Start the Frontend Dashboard
+```bash
+# Open a new terminal
+cd frontend
+npm install
+npm run dev
+```
+* Executive Dashboard: [http://localhost:3000](http://localhost:3000)
 
 ---
 
-## 🔄 End-to-End Execution Flow (Data Pipeline ➔ UI)
+## 📥 Primary Workflow: CSV Upload & Validation
 
-Follow these steps to populate the warehouse with live data and run ML models from scratch:
+### Features:
+1. **Interactive Modal**: Click **"Upload CSV"** in the top header. Supports Drag-and-Drop and File Browser.
+2. **Dual-Schema Detection**:
+   * **Canonical Finpilot**: `transaction_id, date, shop_id, product, category, quantity, unit_price, total, customer_id, payment_mode, cost_price`
+   * **Kaggle Online Retail**: `InvoiceNo, StockCode, Description, Quantity, InvoiceDate, UnitPrice, CustomerID, Country`
+3. **Robust Quality Checks**:
+   * UTF-8 and BOM-encoded CSV handling.
+   * Row-level numeric constraints, future-date guards, and unreadable date detection.
+   * Deduplication within the file and against existing warehouse records.
+   * Returns and cancellations (`quantity < 0` or invoice starting with `'C'`) are preserved for accurate Net Revenue calculation (`Net Revenue = Gross Sales - Returns`).
+4. **Instant Dashboard Refresh**: Ingestion triggers immediate re-querying of all KPI cards, trend charts, forecast models, and anomaly tables without manual page reload.
 
-### Step 1: Generate Raw Synthetic Transactions
+### Downloadable Templates & Samples:
+* Download sample dataset: `GET /upload/sample`
+* Download blank header template: `GET /upload/template`
+* Or click **"Download Sample CSV"** inside the Upload Modal.
+
+### Uploading via CLI:
 ```bash
-cd data-generator
-pip install -r requirements.txt
-python generate.py --rows 500000 --output output/retail_transactions.csv
+# Canonical Finpilot Sample
+curl -X POST -F "file=@data-generator/kaggle_online_retail_sample.csv" http://localhost:8000/upload
 ```
 
-### Step 2: Stream Data Through Kafka to MinIO Bronze
+---
+
+## 📊 Genuine Kaggle Online Retail Dataset Support
+
+Finpilot-AI natively ingests the official public **Kaggle Online Retail Dataset**:
+[https://www.kaggle.com/datasets/lakshmi25npathi/online-retail-dataset](https://www.kaggle.com/datasets/lakshmi25npathi/online-retail-dataset)
+
+### Step-by-Step Instructions:
+
+#### 1. Download Official Dataset
+* **Via Kaggle CLI**:
+  ```bash
+  kaggle datasets download -d lakshmi25npathi/online-retail-dataset
+  unzip online-retail-dataset.zip
+  ```
+* **Via Browser**:
+  1. Visit [Kaggle Online Retail Dataset](https://www.kaggle.com/datasets/lakshmi25npathi/online-retail-dataset).
+  2. Click **Download** (requires Kaggle account).
+  3. Extract `Online Retail.xlsx`.
+
+#### 2. Convert Excel to Production-Ready CSV
+The original Kaggle distribution is an Excel file (`.xlsx`). Use the verified converter script:
 ```bash
-cd ../ingestion
-pip install -r requirements.txt
-
-# Terminal A: Start the MinIO Bronze Consumer
-python consumer.py --bootstrap-servers localhost:29092 --batch-size 10000
-
-# Terminal B: Start Streaming Transactions via Kafka Producer
-python producer.py --bootstrap-servers localhost:29092 --input-file ../data-generator/output/retail_transactions.csv
+python3 data-generator/convert_kaggle_retail.py \
+  --input "Online Retail.xlsx" \
+  --output "data-generator/output/kaggle_online_retail.csv"
+```
+To generate a lightweight 5,000-row sample for quick testing:
+```bash
+python3 data-generator/convert_kaggle_retail.py \
+  --input "Online Retail.xlsx" \
+  --output "data-generator/output/kaggle_sample.csv" \
+  --sample 5000
 ```
 
-### Step 3: Run Medallion Lakehouse PySpark ETL (Bronze ➔ Silver ➔ Gold)
+#### 3. Upload and Ingest
+* Drag & drop `kaggle_online_retail.csv` into the dashboard modal, or use curl:
 ```bash
-cd ../etl
-pip install -r requirements.txt
+curl -X POST -F "file=@data-generator/output/kaggle_online_retail.csv" http://localhost:8000/upload
+```
 
-# Run PySpark transformation
-python spark_etl.py --local-mode \
+#### Verified Kaggle Schema Mapping & Handling:
+| Kaggle Field | Canonical Warehouse Field | Handling & Transformations |
+| :--- | :--- | :--- |
+| `InvoiceNo` | `transaction_id` | Composite key `{InvoiceNo}_{StockCode}_{index}` ensures multi-item invoices are not falsely deduplicated. |
+| `InvoiceDate` | `date` / `timestamp` | Flexible date parsing into ANSI ISO timestamps and `dim_date` foreign keys. |
+| `Description` | `product` | Blank descriptions are automatically mapped to `SKU_{StockCode}` or `General Merchandise`. |
+| `Quantity` | `quantity` | Negative quantities (e.g. cancellations `C536379`) are preserved as returns in net revenue calculations. |
+| `UnitPrice` | `unit_price` | Monetary values rounded to 2 decimal places. |
+| `CustomerID` | `customer_id` | Treated as data identifier (not PII). Blank/missing values mapped to `CUST_ANONYMOUS`. |
+| `Country` | `shop_id` | Mapped to geographic retail store codes (`SHOP_UNITED_KINGDOM`, `SHOP_FRANCE`, etc.). |
+
+A curated reference sample with documented provenance is included at [`data-generator/kaggle_online_retail_sample.csv`](data-generator/kaggle_online_retail_sample.csv).
+
+---
+
+## 🤖 Running the Machine Learning Pipeline
+
+The ML pipeline executes Prophet revenue forecasting and Isolation Forest anomaly detection against the warehouse:
+
+```bash
+# Run against local SQLite database
+python3 ml/run_pipeline.py
+
+# Run with custom parameters
+python3 ml/run_pipeline.py --forecast-days 30 --contamination 0.015
+
+# Run in standalone synthetic demo mode
+python3 ml/run_pipeline.py --demo
+```
+
+### ML Engine Features:
+* **Meta Prophet Forecaster**: Learns daily, weekly, and annual seasonality curves. If `prophet` is not installed, it falls back to a linear trend & day-of-week seasonality projection with confidence bands.
+* **Isolation Forest Anomaly Detector**: Evaluates transaction amounts, quantities, unit prices, and store volumes to identify statistical outliers.
+* **Idempotent Updates**: Safely updates `ml_forecasts` and `ml_anomalies` without duplicating rows.
+
+---
+
+## 🌊 Optional: Apache Kafka Streaming Pipeline
+
+The Kafka streaming path is an optional high-velocity pipeline:
+
+```
+POS / CSV Source ──► Kafka Producer ──► 'retail.transactions.raw' ──► Consumer ──► MinIO Bronze
+```
+
+### Running Kafka Separately:
+
+```bash
+# 1. Start Zookeeper & Kafka via Docker
+docker compose up -d zookeeper kafka
+
+# 2. In Terminal A: Start the MinIO Consumer
+cd ingestion
+python3 consumer.py --bootstrap-servers localhost:29092 --batch-size 5000
+
+# 3. In Terminal B: Start the Streaming Producer
+cd ingestion
+python3 producer.py --bootstrap-servers localhost:29092 --live-mock-count 10000
+```
+
+* Consumer group commits offsets only after successful batch writes.
+* Clean error reporting if brokers are unavailable.
+* Producer keys messages by `shop_id` for partition ordering.
+
+---
+
+## ⚡ Optional: PySpark Medallion Lakehouse & MinIO
+
+The PySpark lakehouse pipeline processes Bronze raw data into Silver Parquet tables and Gold business aggregates:
+
+```bash
+# 1. Start MinIO Object Storage
+docker compose up -d minio
+
+# 2. Run PySpark Medallion ETL
+cd etl
+# Run with local filesystem (no MinIO required):
+python3 spark_etl.py --local-mode \
   --bronze-path ../data-generator/output/retail_transactions.csv \
-  --silver-path ./data/silver/transactions/ \
+  --silver-path ./data/silver/ \
   --gold-path ./data/gold/
 ```
 
-### Step 4: Bulk-Load Gold Datasets into PostgreSQL Star Schema
-```bash
-cd ../warehouse
-pip install -r requirements.txt
-python load_gold.py --source ../etl/data/gold/fact_sales
-```
-
-### Step 5: Execute the Machine Learning Pipeline
-Trains Meta Prophet for revenue forecasts and Isolation Forest for anomaly detection, saving model outputs directly into `ml_forecasts` and `ml_anomalies`:
-```bash
-cd ../ml
-pip install -r requirements.txt
-python run_pipeline.py --forecast-days 30 --anomaly-sample 50000
-```
-
-### Step 6: View Live Results on the Dashboard
-Open [http://localhost:3000](http://localhost:3000) in your browser:
-* The status banner in the top header switches from `Cold-Start Demo Mode` to `Live PostgreSQL Warehouse`.
-* All KPI cards, trends, forecasts, category distributions, and anomaly tables update to reflect live data from your warehouse.
+* S3A credentials and endpoint are read from environment variables.
+* Deduplication and schema enforcement happen in the Silver layer.
+* Gold layer compiles `fact_sales`, `daily_shop_metrics`, and `customer_summary`.
 
 ---
 
-## 📡 API Reference
+## 🧪 Automated Testing
 
-Interactive Swagger documentation is available at [http://localhost:8000/docs](http://localhost:8000/docs).
+Finpilot-AI includes a comprehensive test suite covering CSV validation, schema normalization, Kaggle datasets, returns, database idempotency, health endpoints, and date validation:
 
-| Method | Route | Description | Query Parameters |
+```bash
+# Run the entire test suite
+python3 -m pytest backend/tests -v
+```
+
+### Test Coverage Highlights:
+* `test_upload_valid_csv_and_warehouse_ingestion`: Full ingestion into fact and dimension tables.
+* `test_upload_idempotency_duplicate_handling`: Duplicate uploads do not inflate revenue totals.
+* `test_upload_kaggle_online_retail_sample`: Verifies Kaggle schema, return handling, and Net vs Gross revenue reconciliation.
+* `test_revenue_date_validation`: Validates date formats and start/end boundaries.
+* `test_health_check_endpoint`: Verifies dialect and service health reporting.
+* `test_clean_csv`, `test_duplicates`, `test_bad_dates`, `test_negative_and_zero_values`: Data quality constraints.
+
+---
+
+## 🐳 Full Containerized Deployment (Docker Compose)
+
+To run the entire multi-service stack together:
+
+```bash
+# Setup environment
+cp .env.example .env
+
+# Build and start all services
+docker compose up --build -d
+```
+
+### Service Directory:
+| Service | Role | URL | Default Credentials |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/revenue` | Executive KPI aggregates, AOV, category revenue, top shops, and period growth. | `start_date` (YYYY-MM-DD), `end_date` (YYYY-MM-DD) |
-| `GET` | `/trends` | Chronological revenue and transaction volume time-series. | `timeframe` (`daily`, `weekly`, `monthly`), `limit` (int) |
-| `GET` | `/forecast` | Meta Prophet forecast curves with lower/upper confidence bounds. | `horizon_days` (default: 30) |
-| `GET` | `/anomalies` | Transactions flagged by Isolation Forest with score and severity. | `severity` (`Critical`, `Warning`), `limit` (default: 20) |
-| `GET` | `/recommendations` | Real-time AI operational action cards (inventory, fraud, pricing). | None |
-| `GET` | `/health` | Live database connectivity and health diagnostics. | None |
-
-All response schemas include an `is_demo` boolean indicator indicating whether data is derived from live database records or a cold-start simulation.
+| **Frontend** | Next.js Dashboard | [http://localhost:3000](http://localhost:3000) | - |
+| **Backend API** | FastAPI Gateway | [http://localhost:8000](http://localhost:8000) | - |
+| **Swagger Docs** | Interactive API | [http://localhost:8000/docs](http://localhost:8000/docs) | - |
+| **PostgreSQL** | Relational Warehouse | `localhost:5432` | `finpilot_user` / `finpilot_pass` |
+| **MinIO Console**| S3 Storage Web UI | [http://localhost:9001](http://localhost:9001) | `admin` / `admin12345` |
+| **Kafka Broker**| Message Broker | `localhost:29092` | - |
 
 ---
 
-## 🛠️ Tech Stack Summary
+## ⚠️ Known Limitations & Operational Notes
 
-* **Frontend**: Next.js 14, React 18, TypeScript, Tailwind CSS, Lucide React, Recharts
-* **Backend Gateway**: FastAPI, Uvicorn, SQLAlchemy 2, Pydantic v2
-* **Storage & Lakehouse**: PostgreSQL 16, MinIO (S3 compatible), Apache Parquet
-* **Big Data & Streaming**: Apache Kafka, PySpark, PyArrow
-* **Machine Learning**: Meta Prophet, Scikit-Learn, Pandas, NumPy
-* **DevOps**: Docker, Docker Compose
+1. **Docker PyPI Timeout**: When building the backend Docker image in high-latency network environments, pip packages may experience timeouts. The Dockerfile includes `--default-timeout=120 --retries 5` to mitigate this.
+2. **Prophet Dependency**: Installing `prophet` locally requires C++ compilers (`pystan` / `cmdstanpy`). When omitted, Finpilot-AI automatically runs its built-in statistical fallback without error.
+3. **Database Dialect Transparency**: Finpilot-AI explicitly connects to either PostgreSQL (production) or SQLite (local development) via `DATABASE_URL`. It does not silently fall back from a broken PostgreSQL instance to SQLite, preventing unexpected data isolation.
+4. **Customer Data Privacy**: Customer identifiers (`customer_id` / `CustomerID`) are strictly handled as analytical surrogate data identifiers, never as personal identifiable information (PII).

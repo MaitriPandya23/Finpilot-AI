@@ -27,10 +27,20 @@ except ImportError:
     create_engine = None
     text = None
 
-DEFAULT_DB_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://finpilot_user:finpilot_pass@localhost:5432/finpilot"
-)
+def get_default_db_url() -> str:
+    if os.getenv("DATABASE_URL"):
+        return os.environ["DATABASE_URL"]
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    root_db = os.path.join(repo_root, "finpilot_local.db")
+    if os.path.exists(root_db):
+        return f"sqlite:///{root_db}"
+    cur_db = os.path.abspath("finpilot_local.db")
+    if os.path.exists(cur_db):
+        return f"sqlite:///{cur_db}"
+    return f"sqlite:///{root_db}"
+
+
+DEFAULT_DB_URL = get_default_db_url()
 
 
 
@@ -39,7 +49,7 @@ def fetch_transactions_for_audit(engine, limit: int = 50_000) -> pd.DataFrame:
     query = f"""
         SELECT
             f.transaction_id,
-            f.transaction_timestamp::date AS date,
+            f.transaction_timestamp,
             s.shop_id,
             p.product_name,
             p.category,
@@ -55,7 +65,13 @@ def fetch_transactions_for_audit(engine, limit: int = 50_000) -> pd.DataFrame:
     """
     try:
         with engine.connect() as conn:
-            df = pd.read_sql(query, conn)
+            res = conn.execute(text(query))
+            df = pd.DataFrame(res.fetchall(), columns=res.keys())
+            if not df.empty:
+                df["date"] = pd.to_datetime(df["transaction_timestamp"]).dt.date
+                df["total_amount"] = df["total_amount"].astype(float)
+                df["unit_price"] = df["unit_price"].astype(float)
+                df["quantity"] = df["quantity"].astype(int)
             return df
     except Exception as e:
         print(f"Database query warning: {e}")
@@ -184,11 +200,31 @@ def run_anomaly_detection(engine, sample_size: int = 50_000, contamination: floa
 
     print(f"Detected {len(db_records):,} anomalies ({len(db_records)/len(df)*100:.2f}% of evaluated transactions).")
 
-    # Persist to PostgreSQL if available
+    # Persist to PostgreSQL / SQLite if available
     if engine and SQLALCHEMY_AVAILABLE:
         try:
             with engine.begin() as conn:
-                db_records.to_sql("ml_anomalies", con=conn, if_exists="append", index=False)
+                records = []
+                for _, r in db_records.iterrows():
+                    dt_val = r["date"]
+                    py_dt = dt_val.date() if hasattr(dt_val, "date") and callable(dt_val.date) else dt_val
+                    det_val = r["detected_at"]
+                    py_det = det_val.to_pydatetime() if hasattr(det_val, "to_pydatetime") else det_val
+                    records.append({
+                        "transaction_id": str(r["transaction_id"]),
+                        "date": py_dt,
+                        "shop_id": str(r["shop_id"]),
+                        "total_amount": float(r["total_amount"]),
+                        "anomaly_score": float(r["anomaly_score"]),
+                        "is_anomaly": bool(r["is_anomaly"]),
+                        "severity": str(r["severity"]),
+                        "reason": str(r["reason"]),
+                        "detected_at": py_det,
+                    })
+                conn.execute(text("""
+                    INSERT INTO ml_anomalies (transaction_id, date, shop_id, total_amount, anomaly_score, is_anomaly, severity, reason, detected_at)
+                    VALUES (:transaction_id, :date, :shop_id, :total_amount, :anomaly_score, :is_anomaly, :severity, :reason, :detected_at)
+                """), records)
             print(f"Anomalies successfully stored in 'ml_anomalies' table! (Elapsed: {time.time() - t0:.2f}s)")
         except Exception as e:
             print(f"Database persistence skipped/failed: {e}")
@@ -201,13 +237,23 @@ def run_anomaly_detection(engine, sample_size: int = 50_000, contamination: floa
 
 def main():
     parser = argparse.ArgumentParser(description="Finpilot-AI Anomaly Detector")
-    parser.add_argument("--db-url", type=str, default=DEFAULT_DB_URL, help="PostgreSQL connection string")
+    parser.add_argument("--db-url", type=str, default=DEFAULT_DB_URL, help="Database connection string (SQLite or PostgreSQL)")
     parser.add_argument("--sample-size", type=int, default=50_000, help="Max records to audit")
     parser.add_argument("--contamination", type=float, default=0.015, help="Expected outlier proportion")
     parser.add_argument("--demo", action="store_true", help="Run in standalone demo mode without connecting to database")
     args = parser.parse_args()
 
-    engine = create_engine(args.db_url) if (SQLALCHEMY_AVAILABLE and not args.demo) else None
+    engine = None
+    if SQLALCHEMY_AVAILABLE and not args.demo:
+        try:
+            candidate_engine = create_engine(args.db_url)
+            with candidate_engine.connect() as conn:
+                pass
+            engine = candidate_engine
+        except Exception as conn_err:
+            print(f"Notice: Database connection at {args.db_url} unavailable ({conn_err}). Running in demo mode.")
+            engine = None
+
     run_anomaly_detection(engine, sample_size=args.sample_size, contamination=args.contamination)
 
 

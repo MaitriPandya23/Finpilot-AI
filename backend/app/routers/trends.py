@@ -76,13 +76,15 @@ def get_trends(
                 is_demo=True,
             )
 
-        # Build date grouping expression based on requested timeframe
+        is_sqlite = db.bind.dialect.name == "sqlite" if db.bind else False
+
+        # Build date grouping expression based on requested timeframe and dialect
         if timeframe == "monthly":
-            date_expr = "TO_CHAR(d.date_actual, 'YYYY-MM')"
+            date_expr = "SUBSTR(d.date_actual, 1, 7)" if is_sqlite else "TO_CHAR(d.date_actual, 'YYYY-MM')"
         elif timeframe == "weekly":
-            date_expr = "TO_CHAR(DATE_TRUNC('week', d.date_actual), 'YYYY-MM-DD')"
+            date_expr = "DATE(d.date_actual, 'weekday 0', '-6 days')" if is_sqlite else "TO_CHAR(DATE_TRUNC('week', d.date_actual), 'YYYY-MM-DD')"
         else:
-            date_expr = "d.date_actual::text"
+            date_expr = "d.date_actual" if is_sqlite else "d.date_actual::text"
 
         sql = f"""
             SELECT

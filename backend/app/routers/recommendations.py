@@ -117,10 +117,12 @@ def get_recommendations(db: Session = Depends(get_db)):
             )
 
         # 2. Anomaly Risk Investigation
-        anom_row = db.execute(text("""
+        is_sqlite = db.bind.dialect.name == "sqlite" if db.bind else False
+        anom_where = "WHERE (is_anomaly = 1 OR is_anomaly IS NULL)" if is_sqlite else "WHERE (is_anomaly IS TRUE OR is_anomaly IS NULL)"
+        anom_row = db.execute(text(f"""
             SELECT shop_id, COUNT(*) as cnt, COALESCE(SUM(total_amount), 0.0) as flagged_amt
             FROM ml_anomalies
-            WHERE is_anomaly = TRUE
+            {anom_where}
             GROUP BY shop_id
             ORDER BY cnt DESC
             LIMIT 1;

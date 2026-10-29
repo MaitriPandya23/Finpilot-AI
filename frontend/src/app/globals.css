@@ -1,6 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
-
 :root {
+  color-scheme: dark;
   --bg-main: #090d16;
   --bg-card: rgba(18, 24, 38, 0.75);
   --bg-card-hover: rgba(24, 32, 50, 0.85);
@@ -25,6 +24,12 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+html {
+  background-color: #090d16;
+  color: #f8fafc;
+  color-scheme: dark;
 }
 
 body {

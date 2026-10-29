@@ -1,16 +1,23 @@
 "use client";
 
 import React from "react";
-import { Activity, Database, Server, RefreshCw, Zap, ShieldCheck } from "lucide-react";
+import { Activity, Database, Server, RefreshCw, Zap, ShieldCheck, UploadCloud } from "lucide-react";
 
 interface HeaderProps {
   onRefresh: () => void;
+  onOpenUpload?: () => void;
   isLoading: boolean;
   lastUpdated: string;
   isDemo?: boolean;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onRefresh, isLoading, lastUpdated, isDemo = false }) => {
+export const Header: React.FC<HeaderProps> = ({
+  onRefresh,
+  onOpenUpload,
+  isLoading,
+  lastUpdated,
+  isDemo = false,
+}) => {
   return (
     <header style={{
       display: "flex",
@@ -49,7 +56,7 @@ export const Header: React.FC<HeaderProps> = ({ onRefresh, isLoading, lastUpdate
               </span>
             ) : (
               <span className="badge badge-success" style={{ fontSize: "0.7rem", padding: "2px 8px" }}>
-                Live PostgreSQL Warehouse
+                Live Warehouse Active
               </span>
             )}
           </div>
@@ -78,12 +85,24 @@ export const Header: React.FC<HeaderProps> = ({ onRefresh, isLoading, lastUpdate
           <span>AI Models: <strong>Active</strong></span>
         </div>
 
-        {/* Action Button */}
+        {/* Action Buttons */}
+        {onOpenUpload && (
+          <button
+            onClick={onOpenUpload}
+            className="btn-primary"
+            style={{ marginLeft: "8px" }}
+            title="Upload CSV to ingest business transactions into warehouse"
+          >
+            <UploadCloud size={15} />
+            <span>Upload CSV</span>
+          </button>
+        )}
+
         <button
           onClick={onRefresh}
           className="btn-secondary"
           disabled={isLoading}
-          style={{ marginLeft: "8px" }}
+          style={{ marginLeft: onOpenUpload ? "0px" : "8px" }}
           title={`Last updated: ${lastUpdated}`}
         >
           <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />

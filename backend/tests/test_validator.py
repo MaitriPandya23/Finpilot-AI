@@ -173,3 +173,118 @@ def test_bytes_and_stream_inputs(clean_csv_content):
     res_stream = validate_csv(stream)
     assert res_stream.is_valid is True
     assert res_stream.total_rows == 5
+
+
+def test_kaggle_online_retail_schema_detection():
+    """Validator must detect Kaggle Online Retail schema, map fields, and account for returns."""
+    kaggle_csv = (
+        "InvoiceNo,StockCode,Description,Quantity,InvoiceDate,UnitPrice,CustomerID,Country\n"
+        "536365,85123A,WHITE HANGING HEART T-LIGHT HOLDER,6,2024-06-01 08:26:00,2.55,17850,United Kingdom\n"
+        "536365,71053,WHITE METAL LANTERN,6,2024-06-01 08:26:00,3.39,17850,United Kingdom\n"
+        "C536379,D,Discount,-1,2024-06-04 09:41:00,27.50,14527,United Kingdom\n"
+        "536373,85123A,WHITE HANGING HEART T-LIGHT HOLDER,6,2024-06-03 09:02:00,2.55,,United Kingdom\n"
+    )
+    res = validate_csv(kaggle_csv)
+    assert res.is_valid is True
+    assert res.schema_detected == "Kaggle Online Retail"
+    assert res.total_rows == 4
+    assert res.valid_rows == 4
+    assert res.return_count == 1
+    assert any("Kaggle Online Retail" in w for w in res.warnings)
+
+
+def test_kaggle_online_retail_ii_exact_headers():
+    """Validator must accept exact Kaggle Online Retail II headers (Invoice, Price, Customer ID)."""
+    kaggle_ii = (
+        "Invoice,StockCode,Description,Quantity,InvoiceDate,Price,Customer ID,Country\n"
+        "536365,85123A,WHITE HANGING HEART T-LIGHT HOLDER,6,12/1/10 8:26,2.55,17850,United Kingdom\n"
+        "536365,71053,WHITE METAL LANTERN,6,12/1/10 8:26,3.39,17850,United Kingdom\n"
+        "C536379,D,Discount,-1,12/1/10 9:41,27.50,14527,United Kingdom\n"
+        "536373,85123A,,2,12/1/10 9:02,2.55,,United Kingdom\n"
+    )
+    res = validate_csv(kaggle_ii)
+    assert res.is_valid is True
+    assert res.schema_detected == "Kaggle Online Retail"
+    assert res.total_rows == 4
+    assert res.valid_rows == 4
+    assert res.return_count == 1
+    assert res.missing_required_columns == []
+    # Verify product fallback from empty description to SKU
+    assert res.sample_preview[3]["product"] == "SKU_85123A"
+    # Verify customer ID fallback from empty to CUST_ANONYMOUS
+    assert res.sample_preview[3]["customer_id"] == "CUST_ANONYMOUS"
+
+
+def test_header_case_and_whitespace_variations():
+    """Headers with mixed case, whitespace, and alternate punctuation must map cleanly."""
+    varied_csv = (
+        "  INVOICE  , Stock Code , description , QTY , Invoice Date , Unit Price , Customer ID , COUNTRY \n"
+        "536365,85123A,Heart Light,4,2024-06-01 10:00:00,5.00,12345,France\n"
+    )
+    res = validate_csv(varied_csv)
+    assert res.is_valid is True
+    assert res.schema_detected == "Kaggle Online Retail"
+    assert res.valid_rows == 1
+    assert res.missing_required_columns == []
+    assert float(res.sample_preview[0]["total"]) == 20.00
+
+
+def test_total_calculation_from_quantity_and_price():
+    """When source lacks 'total', it must be computed as Quantity * Price."""
+    no_total_csv = (
+        "transaction_id,date,product,quantity,unit_price\n"
+        "TXN_A,2024-06-01,Wireless Mouse,3,25.50\n"
+        "TXN_B,2024-06-02,USB Hub,2,15.00\n"
+    )
+    res = validate_csv(no_total_csv)
+    assert res.is_valid is True
+    assert res.valid_rows == 2
+    assert float(res.sample_preview[0]["total"]) == 76.50
+    assert float(res.sample_preview[1]["total"]) == 30.00
+
+
+def test_negative_quantities_and_returns_in_kaggle():
+    """Returns with negative quantities or C invoice prefix must be preserved with negative total."""
+    returns_csv = (
+        "Invoice,StockCode,Description,Quantity,InvoiceDate,Price,Customer ID,Country\n"
+        "536365,85123A,Standard Sale,5,2024-06-01 10:00:00,10.00,17850,United Kingdom\n"
+        "C536379,D,Cancelled Item,-2,2024-06-02 10:00:00,15.00,17850,United Kingdom\n"
+        "C536380,22139,Return Credit Note,1,2024-06-03 10:00:00,20.00,17850,United Kingdom\n"
+    )
+    res = validate_csv(returns_csv)
+    assert res.is_valid is True
+    assert res.total_rows == 3
+    assert res.valid_rows == 3
+    assert res.return_count == 2
+    # C536379: -2 * 15.00 = -30.00
+    assert float(res.sample_preview[1]["total"]) == -30.00
+    # C536380: cancellation prefix C flips positive qty 1 to -1 -> total -20.00
+    assert float(res.sample_preview[2]["total"]) == -20.00
+
+
+def test_missing_optional_customer_id():
+    """Missing Customer ID must assign anonymous fallback without rejecting row."""
+    csv_data = (
+        "Invoice,StockCode,Description,Quantity,InvoiceDate,Price,Customer ID,Country\n"
+        "536365,85123A,Guest Purchase,1,2024-06-01 10:00:00,12.00,,United Kingdom\n"
+    )
+    res = validate_csv(csv_data)
+    assert res.is_valid is True
+    assert res.valid_rows == 1
+    assert res.sample_preview[0]["customer_id"] == "CUST_ANONYMOUS"
+
+
+def test_unsupported_csv_schema():
+    """A completely unrecognizable CSV schema must fail validation with clear instructions."""
+    unsupported_csv = (
+        "employee_name,department,salary,hire_date\n"
+        "Alice,Engineering,120000,2020-01-15\n"
+        "Bob,Marketing,95000,2021-03-20\n"
+    )
+    res = validate_csv(unsupported_csv)
+    assert res.is_valid is False
+    assert res.schema_detected == "Unsupported Schema"
+    assert "transaction_id" in res.missing_required_columns
+    assert "quantity" in res.missing_required_columns
+    assert any("Please ensure CSV includes transaction identifier" in w for w in res.warnings)
+

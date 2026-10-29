@@ -9,8 +9,9 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
+from . import models  # Ensures all ORM models are registered with Base.metadata
 from .schemas import HealthResponse
-from .routers import revenue, trends, forecast, anomalies, recommendations
+from .routers import revenue, trends, forecast, anomalies, recommendations, upload
 
 
 @asynccontextmanager
@@ -54,12 +55,14 @@ app.include_router(trends.router)
 app.include_router(forecast.router)
 app.include_router(anomalies.router)
 app.include_router(recommendations.router)
+app.include_router(upload.router)
 
 app.include_router(revenue.router, prefix="/api/v1")
 app.include_router(trends.router, prefix="/api/v1")
 app.include_router(forecast.router, prefix="/api/v1")
 app.include_router(anomalies.router, prefix="/api/v1")
 app.include_router(recommendations.router, prefix="/api/v1")
+app.include_router(upload.router, prefix="/api/v1")
 
 
 @app.get("/", tags=["System"])
@@ -75,16 +78,34 @@ def root():
             "/forecast",
             "/anomalies",
             "/recommendations",
+            "/upload",
+            "/upload/sample",
+            "/upload/template",
             "/health",
         ],
     }
 
 
+from .database import engine, Base, check_database_health
+
+
 @app.get("/health", response_model=HealthResponse, tags=["System"])
+@app.get("/api/v1/health", response_model=HealthResponse, tags=["System"])
 def health_check():
+    db_status = check_database_health()
+    is_healthy = db_status.get("connected", False)
+
+    # Optional services probes
+    services = {
+        "kafka": "optional (offline)",
+        "minio": "optional (offline)",
+    }
+
     return HealthResponse(
-        status="healthy",
+        status="healthy" if is_healthy else "degraded",
         timestamp=datetime.utcnow().isoformat(),
-        database="connected",
+        database="connected" if is_healthy else "disconnected",
+        database_dialect=db_status.get("dialect", "unknown"),
         version="1.0.0",
+        services=services,
     )

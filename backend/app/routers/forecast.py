@@ -23,16 +23,19 @@ def get_revenue_forecast(
 ):
     """Returns predictive revenue time-series with upper and lower 95% confidence intervals."""
     try:
-        sql = """
+        is_sqlite = db.bind.dialect.name == "sqlite" if db.bind else False
+        current_date_expr = "DATE('now')" if is_sqlite else "CURRENT_DATE"
+
+        sql = f"""
             SELECT
-                ds::text AS ds_str,
+                ds,
                 yhat,
                 yhat_lower,
                 yhat_upper,
                 model_version,
-                generated_at::text
+                generated_at
             FROM ml_forecasts
-            WHERE ds >= CURRENT_DATE
+            WHERE ds >= {current_date_expr}
             ORDER BY ds ASC
             LIMIT :limit;
         """
@@ -40,19 +43,19 @@ def get_revenue_forecast(
         if not rows:
             # Check if any forecasts exist even if generated for earlier test dates
             fallback_sql = """
-                SELECT ds::text, yhat, yhat_lower, yhat_upper, model_version, generated_at::text
+                SELECT ds, yhat, yhat_lower, yhat_upper, model_version, generated_at
                 FROM ml_forecasts
                 ORDER BY ds DESC
                 LIMIT :limit;
             """
             recent_rows = db.execute(text(fallback_sql), {"limit": horizon_days}).fetchall()
             if recent_rows:
-                rows = sorted(recent_rows, key=lambda x: x[0])
+                rows = sorted(recent_rows, key=lambda x: str(x[0]))
 
         if rows and len(rows) > 0:
             points = [
                 ForecastPoint(
-                    date=r[0],
+                    date=str(r[0]),
                     yhat=round(float(r[1]), 2),
                     yhat_lower=round(float(r[2]), 2),
                     yhat_upper=round(float(r[3]), 2),
@@ -60,9 +63,9 @@ def get_revenue_forecast(
                 for r in rows
             ]
             return ForecastResponse(
-                model_version=rows[0][4] or "prophet_v1",
+                model_version=str(rows[0][4]) if rows[0][4] else "prophet_v1",
                 forecast_horizon_days=len(points),
-                generated_at=rows[0][5] or datetime.utcnow().isoformat(),
+                generated_at=str(rows[0][5]) if rows[0][5] is not None else datetime.utcnow().isoformat(),
                 forecast_data=points,
                 is_demo=False,
             )

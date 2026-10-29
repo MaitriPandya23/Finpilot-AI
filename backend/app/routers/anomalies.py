@@ -22,7 +22,9 @@ def get_anomalies(
 ):
     """Retrieves detected transaction and volume anomalies for fraud and BI audit."""
     try:
-        where_clause = "WHERE is_anomaly = TRUE"
+        is_sqlite = db.bind.dialect.name == "sqlite" if db.bind else False
+        bool_clause = "WHERE (is_anomaly = 1 OR is_anomaly IS NULL)" if is_sqlite else "WHERE (is_anomaly IS TRUE OR is_anomaly IS NULL)"
+        where_clause = bool_clause
         params = {"limit": limit}
         if severity:
             where_clause += " AND severity = :severity"
@@ -32,7 +34,7 @@ def get_anomalies(
             SELECT
                 anomaly_id,
                 COALESCE(transaction_id, 'TXN_N/A'),
-                date::text,
+                date,
                 COALESCE(shop_id, 'GLOBAL'),
                 COALESCE(total_amount, 0.0),
                 COALESCE(anomaly_score, -0.15),
@@ -50,7 +52,7 @@ def get_anomalies(
                 AnomalyItem(
                     anomaly_id=r[0],
                     transaction_id=r[1],
-                    date=r[2],
+                    date=str(r[2]),
                     shop_id=r[3],
                     total_amount=round(float(r[4]), 2),
                     anomaly_score=round(float(r[5]), 4),

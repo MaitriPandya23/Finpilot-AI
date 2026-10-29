@@ -66,7 +66,7 @@ class DimCustomer(Base):
 class FactSales(Base):
     __tablename__ = "fact_sales"
 
-    sales_key = Column(BigInteger, primary_key=True, autoincrement=True)
+    sales_key = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     transaction_id = Column(String(64), unique=True, nullable=False)
     date_key = Column(Integer, ForeignKey("dim_date.date_key"), nullable=False)
     shop_key = Column(Integer, ForeignKey("dim_shop.shop_key"), nullable=False)
